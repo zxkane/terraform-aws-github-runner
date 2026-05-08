@@ -2,6 +2,27 @@
 
 [![docs](https://img.shields.io/badge/docs-runners-blue.svg)](https://github-aws-runners.github.io/terraform-aws-github-runner) [![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners) [![Terraform registry](https://img.shields.io/github/v/release/github-aws-runners/terraform-aws-github-runner?label=Terraform%20Registry)](https://registry.terraform.io/modules/github-aws-runners/github-runner/aws/) [![Terraform checks](https://github.com/github-aws-runners/terraform-aws-github-runner/actions/workflows/terraform.yml/badge.svg)](https://github.com/github-aws-runners/terraform-aws-github-runner/actions/workflows/terraform.yml) [![Lambdas](https://github.com/github-aws-runners/terraform-aws-github-runner/actions/workflows/lambda.yml/badge.svg)](https://github.com/github-aws-runners/terraform-aws-github-runner/actions/workflows/lambda.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/github-aws-runners/terraform-aws-github-runner/badge)](https://scorecard.dev/viewer/?uri=github.com/github-aws-runners/terraform-aws-github-runner) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/10905/badge)](https://www.bestpractices.dev/projects/10905)
 
+---
+
+## 🍴 Fork Notice — `feat/multi-runners`
+
+This fork adds an opinionated, production-ready deployment on top of the upstream module. Find it under [`deployments/shared-runners/`](./deployments/shared-runners/).
+
+**What this fork ships:**
+
+| Feature | Detail |
+|---|---|
+| 🏗️ **Multi-architecture fleets** | A single GitHub App webhook routes jobs to either an arm64 fleet (Graviton4 `c8g.2xlarge` × 10) or an amd64 fleet (`c7a` / `c7i` / `m7a` 4xlarge × 5, multi-pool spot). `exactMatch=true` on each label matcher prevents cross-routing. |
+| 🛡️ **Hardened Ubuntu 24.04 Pro AMIs** | Packer images for both architectures with IMDSv2 enforced on both the resulting AMI **and** the builder instance (required when `httpTokensEnforced` is on), `apt-get upgrade` at build time, and the runner binary baked in. Toolchain: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, CloudWatch Agent. |
+| 💸 **Smarter spot allocation** | Both fleets use `price-capacity-optimized` allocation (AWS-recommended) instead of the default `lowest-price`. The amd64 fleet uses a multi-pool list so spot capacity tightening on any single instance type doesn't stall jobs. |
+| 📊 **Per-project usage tracking** | Validated CloudWatch Logs Insights queries (count / conclusion / wall-clock duration / top jobs) against the webhook Lambda log. Documented honestly: the upstream Lambdas don't emit a `repository` metric dimension, so Metrics Explorer can't aggregate per repo — Logs Insights against the webhook log is the path that actually works. |
+| 🚀 **Migration tooling** | [`scripts/04-migrate-to-multi-runner.sh`](./deployments/shared-runners/scripts/04-migrate-to-multi-runner.sh) handles the destroy + recreate transition from a legacy single-fleet deployment of this stack and verifies the GitHub App webhook URL is auto-synced via JWT-signed `GET /app/hook/config`. |
+| 📒 **Operations handbook** | [`CLAUDE.md`](./CLAUDE.md) captures the operational gotchas that aren't obvious from the code (state-locking realities, instance-type fallback behavior, spot strategy rationale, per-project tracking, AMI build conventions). |
+
+Quick start: [`deployments/shared-runners/RUNBOOK.md`](./deployments/shared-runners/RUNBOOK.md). Most of the upstream documentation below still applies — this fork sits on top of the unmodified upstream module code.
+
+---
+
 > 📄 Extensive documentation is available via our [GitHub Pages Docs site](https://github-aws-runners.github.io/terraform-aws-github-runner/).
 
 > 📢 We maintain the project as a truly open-source project on a best effort basis. We welcome contributions from the community. Feel free to help us answering issues, reviewing PRs, or maintaining and improving the project.
