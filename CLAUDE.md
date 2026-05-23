@@ -188,6 +188,25 @@ AMI security/freshness baseline (both architectures must satisfy):
 
 Toolchain shared by both architectures: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, GitHub CLI (`gh`), CloudWatch Agent.
 
+### Rolling out a new AMI
+
+A successful Packer build alone does **not** put new runners on the new AMI. The Launch Template's `ImageId` is `resolve:ssm:<param>`, and that SSM parameter is written by `aws_ssm_parameter.runner_ami_id`, whose value is `data.aws_ami.runner.id` — a Terraform data source that's only re-evaluated on `terraform plan/apply`.
+
+Procedure after `02-build-ami.sh` finishes:
+
+1. `terraform plan` → expect `Plan: 0 to add, 2 to change, 0 to destroy.` (one SSM param per fleet; `value` + `ghr:ami_name` / `ghr:ami_creation_date` tags). LT, SQS, Lambda, IAM should be untouched. If the plan shows anything else, stop and investigate.
+2. `terraform apply tfplan && rm tfplan`.
+3. Verify the SSM parameters point at the new AMIs:
+   ```bash
+   aws ssm get-parameters --names \
+     /github-action-runners/gh-runner/linux-arm64/runners/config/ami_id \
+     /github-action-runners/gh-runner/linux-amd64/runners/config/ami_id
+   ```
+
+After apply, **already-running spot instances keep the old AMI** (root volume was baked at launch). They get replaced when scale-down recycles them after `minimum_running_time_in_minutes` (15 min) of idle. To roll faster, terminate idle ones manually — but **don't terminate `busy=true` runners** unless you mean to kill the in-flight job. Use the GitHub App JWT to check `busy` per runner before terminating; the dispatcher pattern is in this file's history (search for `app/installations` + `actions/runners`).
+
+GitHub keeps an entry per runner indefinitely after the EC2 instance dies; you'll see `status=offline` ghosts in the runners list. SSM housekeeper Lambda or a periodic GitHub-side cleanup is needed to prune them — out of scope here.
+
 ## Other Notes
 
 - `runner_run_as = "ubuntu"`: Ubuntu AMIs use the `ubuntu` user, not `ec2-user`
