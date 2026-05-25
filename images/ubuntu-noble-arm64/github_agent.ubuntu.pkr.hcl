@@ -207,6 +207,21 @@ build {
   }
 
   provisioner "file" {
+    source      = "../hooks/job-started.sh"
+    destination = "/tmp/job-started.sh"
+  }
+
+  provisioner "shell" {
+    inline = [
+      "sudo mkdir -p /opt/actions-runner/hooks",
+      "sudo mv /tmp/job-started.sh /opt/actions-runner/hooks/job-started.sh",
+      "sudo chown ubuntu:ubuntu /opt/actions-runner/hooks/job-started.sh",
+      "sudo chmod 0755 /opt/actions-runner/hooks/job-started.sh",
+      "echo ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/actions-runner/hooks/job-started.sh | sudo tee -a /opt/actions-runner/.env",
+    ]
+  }
+
+  provisioner "file" {
     content = templatefile("../start-runner.sh", {
       start_runner = templatefile("../../modules/runners/templates/start-runner.sh", { metadata_tags = "enabled" })
     })
