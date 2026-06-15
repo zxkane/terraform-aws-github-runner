@@ -211,9 +211,15 @@ GitHub keeps an entry per runner indefinitely after the EC2 instance dies; you'l
 
 Both AMIs ship a job-started hook at `/opt/actions-runner/hooks/job-started.sh` (source: `images/hooks/job-started.sh`). It's wired in via `ACTIONS_RUNNER_HOOK_JOB_STARTED` in `/opt/actions-runner/.env`, so the runner agent runs it before every job.
 
-What it does: wipes per-repo subdirs under `/opt/actions-runner/_work` (preserves `_actions`, `_temp`, `_tool`, `_PipelineMapping` to keep action download cache hits). This forces `actions/checkout@v4` to take its full-clone path on every job.
+What it does: wipes the contents of per-repo workdirs under `/opt/actions-runner/_work` (skips **every `_`-prefixed entry** — `_actions`, `_temp`, `_tool`, `_PipelineMapping`, `_update`, `_diag`, …; those are all runner-internal and never a repo workdir). This forces `actions/checkout@v4` to take its full-clone path on every job.
 
 Why: when a workflow with `concurrency.cancel-in-progress: true` SIGTERMs an in-flight `actions/checkout` step, the leftover `_work/<repo>/<repo>/` can be in a state where `.git/index` is "consistent" with an empty working tree. The next job on the same persistent runner sees a workdir that `git clean -ffdx && git reset --hard HEAD && git checkout --force -B <branch>` all treat as already-clean — checkout returns success but the workdir stays empty. The first step that actually reads files (typically `npm ci`) fails with `ENOENT`. Short jobs that don't read the workdir succeed silently against an empty checkout, which is more dangerous than the loud failure.
+
+**Two footguns the hook is hardened against** (both bit downstream on 2026-06-15 — see the spec):
+1. **`_update` is runner-internal.** The runner self-update stages a new release (including `externals/node20/…`) under `_work/_update/`. The original fixed skip-list missed it, so the hook ran `find -delete` over residue the `ubuntu` user can't always unlink → `find` errored → under `set -e` the hook aborted → the runner **failed healthy jobs before any step ran**. The skip-list now matches `_*`, so the hook never touches it.
+2. **Cleanup is best-effort, never fatal.** The per-workdir `find -delete` is wrapped so a delete failure (e.g. a root-owned file left by a Docker step) logs a warning to stderr and continues instead of failing the job. `find` still strips the corrupted `.git/index`, so checkout re-clones. Housekeeping must never fail a customer job.
+
+There's a self-contained test for both at `images/hooks/job-started.test.sh` — run `bash images/hooks/job-started.test.sh` after any change to the hook.
 
 **No opt-out by design.** A future operator who finds the hook "slowing things down" because every job re-clones should not strip it without re-reading `docs/superpowers/specs/2026-05-25-job-started-hook-design.md`. The most likely "I want to opt out for caching" case is exactly the case where the bug bites (long-lived persistent runner serving multiple jobs).
 
