@@ -102,7 +102,7 @@ locals {
 }
 
 source "amazon-ebs" "githubrunner" {
-  ami_name                                  = "github-runner-ubuntu-noble-amd64-${formatdate("YYYYMMDDhhmm", timestamp())}"
+  ami_name                                  = "github-runner-ubuntu-resolute-amd64-${formatdate("YYYYMMDDhhmm", timestamp())}"
   instance_type                             = var.instance_type
   iam_instance_profile                      = var.iam_instance_profile
   region                                    = var.region
@@ -124,7 +124,7 @@ source "amazon-ebs" "githubrunner" {
 
   source_ami_filter {
     filters = {
-      name                = "ubuntu-pro-server/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-pro-server-*"
+      name                = "ubuntu-pro-server/images/hvm-ssd-gp3/ubuntu-resolute-26.04-amd64-pro-server-*"
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
@@ -136,7 +136,7 @@ source "amazon-ebs" "githubrunner" {
     var.global_tags,
     var.ami_tags,
     {
-      OS_Version    = "ubuntu-noble-pro"
+      OS_Version    = "ubuntu-resolute-pro"
       Release       = "Latest"
       Base_AMI_Name = "{{ .SourceAMIName }}"
   })
@@ -163,7 +163,14 @@ build {
       "DEBIAN_FRONTEND=noninteractive"
     ]
     inline = concat([
-      "sudo cloud-init status --wait",
+      # `cloud-init status --wait` is a readiness barrier, not a correctness
+      # gate. It exits 2 when cloud-init finishes but hit *recoverable* errors
+      # (degraded state) — common on a fresh 26.04 first boot. Under Packer's
+      # per-line exit-0 requirement that aborted the whole build (observed:
+      # "Script exited with non-zero exit status: 2"). Accept exit 2 (finished,
+      # degraded) but still fail on exit 1 (cloud-init crashed). The subsequent
+      # apt steps surface any real package problem on their own.
+      "sudo cloud-init status --wait || [ $? -eq 2 ]",
       "sudo apt-get -y update",
       "sudo apt-get -y upgrade -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'",
       "sudo apt-get -y install ca-certificates curl gnupg lsb-release",
@@ -202,7 +209,7 @@ build {
       "sudo chmod +x /tmp/install-runner.sh",
       "echo ubuntu | tee -a /tmp/install-user.txt",
       "sudo RUNNER_ARCHITECTURE=x64 RUNNER_TARBALL_URL=$RUNNER_TARBALL_URL /tmp/install-runner.sh",
-      "echo ImageOS=ubuntu24 | tee -a /opt/actions-runner/.env"
+      "echo ImageOS=ubuntu26 | tee -a /opt/actions-runner/.env"
     ]
   }
 

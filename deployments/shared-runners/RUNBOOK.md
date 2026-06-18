@@ -89,7 +89,7 @@ Set repo variable `RUNNER_LABEL` to `["self-hosted", "linux", "arm64"]` or `["se
 | Allocation strategy | `price-capacity-optimized` | `price-capacity-optimized` |
 | Idle timeout | 15 minutes | 15 minutes |
 | Webhook delay | 30s | 30s |
-| AMI | `github-runner-ubuntu-noble-arm64-*` | `github-runner-ubuntu-noble-amd64-*` |
+| AMI | `github-runner-ubuntu-resolute-arm64-*` | `github-runner-ubuntu-resolute-amd64-*` |
 | Root volume | 60 GB encrypted gp3 | 60 GB encrypted gp3 |
 
 ## Per-Project Usage Tracking

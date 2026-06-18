@@ -29,8 +29,8 @@ The deployment / migration scripts (`03-deploy.sh`, `04-migrate-to-multi-runner.
 
 | Fleet | Architecture | Instance types | Max | AMI filter | Purpose |
 |-------|--------------|----------------|----:|-----------|---------|
-| `linux-arm64` | arm64 | `c8g.2xlarge` (Graviton4) | 10 | `github-runner-ubuntu-noble-arm64-*` | General CI |
-| `linux-amd64` | x64 | `c7a.4xlarge` / `c7i.4xlarge` / `m7a.4xlarge` | 5 | `github-runner-ubuntu-noble-amd64-*` | GPU container image builds (no GPU on the runner host itself) |
+| `linux-arm64` | arm64 | `c8g.2xlarge` (Graviton4) | 10 | `github-runner-ubuntu-resolute-arm64-*` | General CI |
+| `linux-amd64` | x64 | `c7a.4xlarge` / `c7i.4xlarge` / `m7a.4xlarge` | 5 | `github-runner-ubuntu-resolute-amd64-*` | GPU container image builds (no GPU on the runner host itself) |
 
 Shared config across both fleets: persistent runners, 15-min idle timeout, Spot with `price-capacity-optimized` allocation, 60 GB encrypted gp3 root, SSM enabled, no userdata, runner binary pre-installed in the AMI.
 
@@ -164,10 +164,10 @@ If you eventually want a true Metrics Explorer dashboard with a `Repository` dim
 
 ## AMI Build
 
-Two Packer directories, structurally aligned:
+Two Packer directories, structurally aligned (Ubuntu 26.04 LTS "Resolute Raccoon"):
 
-- `images/ubuntu-noble-arm64/` — arm64, builder instance `t4g.large`
-- `images/ubuntu-noble/` — amd64, builder instance `t3.large`
+- `images/ubuntu-resolute-arm64/` — arm64, builder instance `t4g.large`
+- `images/ubuntu-resolute/` — amd64, builder instance `t3.large`
 
 Each directory has a `shared.pkrvars.hcl` for build-time inputs (force-added past `images/.gitignore` which excludes `*.pkrvars.hcl`; nothing sensitive lives there).
 
@@ -182,7 +182,9 @@ ARCH=amd64 ./scripts/02-build-ami.sh
 AMI security/freshness baseline (both architectures must satisfy):
 - **IMDSv2-only**: Packer source has `imds_support = "v2.0"` so the resulting AMI registers IMDSv2-only. The Packer builder instance also has `metadata_options { http_tokens = "required" }` because AWS accounts with `httpTokensEnforced` reject any IMDSv1 launch
 - **Latest patches**: `apt-get -y upgrade` (with `force-confdef` + `force-confold`) at build time
-- **Base AMI**: Canonical `ubuntu-pro-server/images/hvm-ssd-gp3/ubuntu-noble-24.04-{arm64,amd64}-pro-server-*`
+- **Base AMI**: Canonical `ubuntu-pro-server/images/hvm-ssd-gp3/ubuntu-resolute-26.04-{arm64,amd64}-pro-server-*`
+- **Empty apt index**: the build ends with `apt-get clean && rm -rf /var/lib/apt/lists/*` so the AMI never ships a stale package index. The index frozen at bake time ages with the image and points at package versions Ubuntu's archive rotates out each point-release; a consumer that runs `apt-get install <pkg>.deb` without a preceding `apt-get update` would otherwise 404 on a rotated dependency. Clearing the lists forces the runner's first apt op to fetch a fresh index. (Consumers should still `apt-get update` before installing.)
+- **cloud-init degraded tolerance**: the first provisioner runs `cloud-init status --wait || [ $? -eq 2 ]` — exit 2 means cloud-init finished in a degraded (recoverable) state, common on a fresh 26.04 first boot; only exit 1 (crash) fails the build.
 - Runner binary pre-installed (`enable_runner_binaries_syncer = false`)
 - No userdata at boot (`enable_userdata = false`)
 
