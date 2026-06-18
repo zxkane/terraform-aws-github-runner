@@ -11,12 +11,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 ARCH="${ARCH:-arm64}"
 case "$ARCH" in
-  arm64) IMAGE_DIR="$REPO_ROOT/images/ubuntu-noble-arm64" ;;
-  amd64) IMAGE_DIR="$REPO_ROOT/images/ubuntu-noble" ;;
+  arm64) IMAGE_DIR="$REPO_ROOT/images/ubuntu-resolute-arm64" ;;
+  amd64) IMAGE_DIR="$REPO_ROOT/images/ubuntu-resolute" ;;
   *) echo "Unknown ARCH=$ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
 esac
 
-echo "Building shared GitHub Runner AMI ($ARCH / Ubuntu 24.04 Pro)..."
+echo "Building shared GitHub Runner AMI ($ARCH / Ubuntu 26.04 Pro)..."
 echo "  Image dir: $IMAGE_DIR"
 echo "  Region: us-east-1"
 
