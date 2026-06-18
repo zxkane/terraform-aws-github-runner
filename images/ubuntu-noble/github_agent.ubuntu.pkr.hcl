@@ -235,6 +235,23 @@ build {
     ]
   }
 
+  # Ship the AMI with an EMPTY apt index, not the index frozen at build time.
+  # The build's `apt-get update` (and Docker repo add) leave /var/lib/apt/lists
+  # populated; baked into the AMI, that index ages with the image and points at
+  # package versions Ubuntu's archive rotates away after each point-release.
+  # A consumer that runs `apt-get install <pkg>.deb` WITHOUT a preceding
+  # `apt-get update` then resolves a dependency (e.g. libegl-mesa0) to the stale
+  # cached version and 404s fetching it. Clearing the lists forces the runner's
+  # first apt operation to pull a fresh index, so the AMI can never carry a
+  # stale version pointer onto a runner. (Consumers should still `apt-get update`
+  # before installing; this just guarantees we never bake the staleness in.)
+  provisioner "shell" {
+    inline = [
+      "sudo apt-get clean",
+      "sudo rm -rf /var/lib/apt/lists/*",
+    ]
+  }
+
   post-processor "manifest" {
     output     = "manifest.json"
     strip_path = true
