@@ -28,7 +28,7 @@ jobs:
       image: index.docker.io/hashicorp/packer@sha256:12c441b8a3994e7df9f0e2692d9298f14c387e70bcc06139420977dbf80a137b # 1.11.2
     strategy:
       matrix:
-        image: ["linux-al2023", "windows-core-2019", "windows-core-2022", "ubuntu-focal", "ubuntu-jammy", "ubuntu-jammy-arm64"]
+        image: ["linux-al2023", "windows-core-2019", "windows-core-2022", "ubuntu-focal", "ubuntu-jammy", "ubuntu-jammy-arm64", "ubuntu-resolute", "ubuntu-resolute-arm64"]
     defaults:
       run:
         working-directory: images/${{ matrix.image }}
@@ -48,3 +48,12 @@ jobs:
         run: packer fmt -recursive -check=true .
       - name: packer validate
         run: packer validate -evaluate-datasources .
+      - name: validate shared AMI variables
+        if: startsWith(matrix.image, 'ubuntu-resolute')
+        run: packer validate -evaluate-datasources -var-file=shared.pkrvars.hcl .
+      - name: verify Chrome provisioning
+        if: matrix.image == 'ubuntu-resolute'
+        working-directory: ${{ github.workspace }}
+        run: |
+          apk add --no-cache jq
+          bash images/chrome-install.test.sh

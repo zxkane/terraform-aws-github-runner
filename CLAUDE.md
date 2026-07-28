@@ -188,7 +188,7 @@ AMI security/freshness baseline (both architectures must satisfy):
 - Runner binary pre-installed (`enable_runner_binaries_syncer = false`)
 - No userdata at boot (`enable_userdata = false`)
 
-Toolchain shared by both architectures: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, GitHub CLI (`gh`), CloudWatch Agent.
+Toolchain shared by both architectures: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, GitHub CLI (`gh`), CloudWatch Agent. The amd64 AMI also includes the latest Google Chrome Stable release available when the image is built.
 
 ### Rolling out a new AMI
 
