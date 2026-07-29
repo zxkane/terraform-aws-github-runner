@@ -38,7 +38,7 @@ ARCH=arm64 ./scripts/02-build-ami.sh
 ARCH=amd64 ./scripts/02-build-ami.sh
 ```
 
-Each AMI includes: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, GitHub Actions runner. IMDSv2 is enforced; the latest apt patches are applied at build time.
+Each AMI includes: Node.js 24, Bun, Playwright Chromium, Docker CE, AWS CLI v2, GitHub Actions runner. The amd64 AMI also includes Google Chrome Stable. IMDSv2 is enforced; the latest apt patches are applied at build time.
 
 ## Step 4: Deploy Infrastructure
 
