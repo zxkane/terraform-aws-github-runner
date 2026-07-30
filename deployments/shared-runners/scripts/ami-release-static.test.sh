@@ -186,6 +186,9 @@ assert_contains ".github/workflows/packer-build.yml" 'PKR_VAR_source_ami_owner:'
   "existing Packer checks must supply the now-required source owner variable"
 assert_contains ".github/workflows/ami-build.yml" 'SESSION_MANAGER_PLUGIN_SHA256:' \
   "Session Manager plugin downloads must be checksum verified"
+# shellcheck disable=SC2016 # Match the literal shell variable in the workflow.
+assert_contains ".github/workflows/ami-build.yml" 'sudo unzip -oq "\$packer_zip" -d /usr/local/bin' \
+  "Packer installation must overwrite a preinstalled binary without prompting"
 assert_contains ".github/workflows/ami-promote.yml" 'cancel-in-progress: false' \
   "promotion must queue channel writers"
 assert_contains ".github/workflows/ami-rollback.yml" 'cancel-in-progress: false' \

@@ -21,6 +21,7 @@
 | TC-AMI-013 | Set `imds_support = "v2.0"` on the final AMI | Build role permits `ModifyImageAttribute` only for managed release images |
 | TC-AMI-014 | Inspect source and package selection | Both Packer sources use the exact Canonical owner/name/storage/virtualization filters with `most_recent=true`, record `Base_AMI_Name`, refresh package metadata, and enforce the documented major/channel contract |
 | TC-AMI-015 | Inspect promotion and rollback job timeout budgets | Each job timeout exceeds the sum of maximum sequential phase deadlines on its longest compensation path by at least 60 seconds |
+| TC-AMI-016 | Install pinned Packer when the hosted runner already has `/usr/local/bin/packer` | The checksum-verified archive overwrites the existing binary without an interactive prompt |
 
 ## Candidate Build And Validation
 
