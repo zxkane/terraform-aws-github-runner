@@ -24,10 +24,26 @@ case "$service:$operation" in
   ec2:describe-images)
     validation_status="candidate"
     release_id="123.1"
+    block_device_mappings='[
+      {"DeviceName":"/dev/sda1","Ebs":{"Encrypted":true}},
+      {"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"},
+      {"DeviceName":"/dev/sdc","VirtualName":"ephemeral1"}
+    ]'
     if [[ "$AMI_VALIDATION_TEST_MODE" == "preflight-passed" ]]; then
       validation_status="passed"
     elif [[ "$AMI_VALIDATION_TEST_MODE" == "preflight-wrong-release" ]]; then
       release_id="999.1"
+    elif [[ "$AMI_VALIDATION_TEST_MODE" == "preflight-ephemeral-only" ]]; then
+      block_device_mappings='[
+        {"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"},
+        {"DeviceName":"/dev/sdc","VirtualName":"ephemeral1"}
+      ]'
+    elif [[ "$AMI_VALIDATION_TEST_MODE" == "preflight-unencrypted-ebs" ]]; then
+      block_device_mappings='[
+        {"DeviceName":"/dev/sda1","Ebs":{"Encrypted":true}},
+        {"DeviceName":"/dev/sdf","Ebs":{"Encrypted":false}},
+        {"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}
+      ]'
     elif [[ -f "$AMI_VALIDATION_TEST_TAG_STATE" ]]; then
       validation_status="$(<"$AMI_VALIDATION_TEST_TAG_STATE")"
       if [[ "$AMI_VALIDATION_TEST_MODE" == "tag-delayed" && "$validation_status" == "passed" ]]; then
@@ -43,7 +59,7 @@ case "$service:$operation" in
   "State":"available",
   "Architecture":"x86_64",
   "ImdsSupport":"v2.0",
-  "BlockDeviceMappings":[{"Ebs":{"Encrypted":true}}],
+  "BlockDeviceMappings":$block_device_mappings,
   "Tags":[
     {"Key":"ghr:managed","Value":"runner-ami-release"},
     {"Key":"ghr:release_id","Value":"$release_id"},
@@ -204,6 +220,20 @@ if run_validator preflight-wrong-release; then
 fi
 if grep -q '^tag:' "$tmp_dir/calls"; then
   fail "provenance failure must not alter validation tags"
+fi
+
+if run_validator preflight-ephemeral-only; then
+  fail "an AMI without an EBS mapping must fail preflight"
+fi
+if grep -q '^run:' "$tmp_dir/calls"; then
+  fail "an AMI without an EBS mapping must not launch a validator"
+fi
+
+if run_validator preflight-unencrypted-ebs; then
+  fail "an AMI with an unencrypted EBS mapping must fail preflight"
+fi
+if grep -q '^run:' "$tmp_dir/calls"; then
+  fail "an AMI with an unencrypted EBS mapping must not launch a validator"
 fi
 
 if run_validator registration-timeout -1 2; then

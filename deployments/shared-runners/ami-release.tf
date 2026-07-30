@@ -402,14 +402,15 @@ data "aws_iam_policy_document" "ami_build" {
   }
 
   statement {
-    sid = "ManageOwnSessions"
-    actions = [
-      "ssm:ResumeSession",
-      "ssm:TerminateSession",
-    ]
-    resources = [
-      "arn:${data.aws_partition.current.partition}:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:session/$${aws:userid}-*",
-    ]
+    sid       = "TerminateOwnSessions"
+    actions   = ["ssm:TerminateSession"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/aws:ssmmessages:session-id"
+      values   = ["$${aws:userid}"]
+    }
   }
 
   statement {

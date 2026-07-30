@@ -17,6 +17,7 @@
 | TC-AMI-009 | Inspect default rollout configuration | Both architecture auto-promotion switches default to disabled |
 | TC-AMI-010 | Scan workflow outputs, credentials steps and artifacts | Every AWS credentials step enables account ID masking; account, AMI, instance and infrastructure IDs are masked or sanitized before replay; no raw Packer manifest is uploaded |
 | TC-AMI-011 | Evaluate build-role IAM and Session Manager transport | Resource creation/mutation requires managed tags, launch inputs are scoped, Packer can use `AWS-StartPortForwardingSession`, and session cleanup is limited to the caller's sessions |
+| TC-AMI-011A | Terminate a Packer session created by the federated build role | Access is limited by the Session Manager session-id resource tag matching `${aws:userid}` |
 | TC-AMI-012 | Evaluate Packer create-time permissions | Build role can create and tag only managed temporary key pairs, instances, volumes, network interfaces, AMIs and snapshots required by both templates |
 | TC-AMI-013 | Set `imds_support = "v2.0"` on the final AMI | Build role permits `ModifyImageAttribute` only for managed release images |
 | TC-AMI-014 | Inspect source and package selection | Both Packer sources use the exact Canonical owner/name/storage/virtualization filters with `most_recent=true`, record `Base_AMI_Name`, refresh package metadata, and enforce the documented major/channel contract |
@@ -55,6 +56,7 @@
 | TC-AMI-126 | `KNOWN` fallback lookup cannot complete or one unique ID termination fails | Cleanup and the job fail; an ambiguous termination is not retried |
 | TC-AMI-127 | `KNOWN` local and fallback IDs contain duplicates | Lookup completes, each unique InstanceId is terminated exactly once, and successful terminate responses complete cleanup without terminal-state polling |
 | TC-AMI-128 | Packer exits while one or more exact tagged builder instances remain | A fully paginated lookup validates and deduplicates every ID, attempts each termination once with SDK retries disabled, and the cleanup phase ends within 120 seconds |
+| TC-AMI-129 | Candidate has encrypted EBS and non-EBS ephemeral mappings, only ephemeral mappings, or an unencrypted EBS mapping | Preflight ignores non-EBS mappings, requires at least one EBS mapping, and requires every EBS mapping to be encrypted |
 
 ## Candidate Selection
 
