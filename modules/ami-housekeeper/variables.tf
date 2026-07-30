@@ -24,6 +24,12 @@ variable "lambda_timeout" {
   default     = 60
 }
 
+variable "lambda_ami_policy_json" {
+  description = "Optional IAM policy JSON override for AMI discovery and deletion."
+  type        = string
+  default     = null
+}
+
 variable "lambda_memory_size" {
   description = "Memory size limit in MB of the lambda."
   type        = number

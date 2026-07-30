@@ -17,6 +17,11 @@ export async function getParameter(parameter_name: string): Promise<string> {
   return result;
 }
 
+export interface GetParametersOptions {
+  client?: SSMClient;
+  abortSignal?: AbortSignal;
+}
+
 /**
  * Retrieves multiple parameters from AWS Systems Manager Parameter Store.
  *
@@ -43,12 +48,15 @@ export async function getParameter(parameter_name: string): Promise<string> {
  *   such as network errors, AWS service errors (e.g., access denied, throttling),
  *   or configuration issues (e.g., missing region or credentials).
  */
-export async function getParameters(parameter_names: string[]): Promise<Map<string, string>> {
+export async function getParameters(
+  parameter_names: string[],
+  options: GetParametersOptions = {},
+): Promise<Map<string, string>> {
   if (parameter_names.length === 0) {
     return new Map();
   }
 
-  const ssmClient = getTracedAWSV3Client(new SSMClient({ region: process.env.AWS_REGION }));
+  const ssmClient = options.client ?? getTracedAWSV3Client(new SSMClient({ region: process.env.AWS_REGION }));
   const result = new Map<string, string>();
 
   // AWS SSM GetParameters API has a limit of 10 parameters per call
@@ -60,6 +68,7 @@ export async function getParameters(parameter_names: string[]): Promise<Map<stri
         Names: chunk,
         WithDecryption: true,
       }),
+      options.abortSignal ? { abortSignal: options.abortSignal } : undefined,
     );
 
     for (const param of response.Parameters ?? []) {

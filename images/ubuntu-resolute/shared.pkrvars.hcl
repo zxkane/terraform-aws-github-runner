@@ -24,8 +24,9 @@ custom_shell_commands = [
   "echo 'Bun version:' && bun --version",
 
   # ── Playwright Chromium (system deps + browser binary) ──
-  "sudo npx playwright install-deps chromium",
-  "npx playwright install chromium",
+  "sudo npm install -g playwright",
+  "sudo playwright install-deps chromium",
+  "playwright install chromium",
   "echo 'Playwright browsers installed'",
 
   # ── Google Chrome Stable (official signed amd64 repository) ──
@@ -56,7 +57,7 @@ custom_shell_commands = [
   "bun --version",
   "aws --version",
   "docker --version",
-  "npx playwright --version",
+  "playwright --version",
   "google-chrome --version",
   "timeout --signal=TERM --kill-after=5s 30s google-chrome --headless --disable-gpu --dump-dom about:blank > /dev/null",
   "gh --version",

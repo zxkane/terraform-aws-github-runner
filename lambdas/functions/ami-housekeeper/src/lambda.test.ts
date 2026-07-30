@@ -52,15 +52,16 @@ describe('Housekeeper ami', () => {
       });
     });
     await expect(handler(undefined, context)).resolves.not.toThrow();
+    expect(mock).toHaveBeenCalledWith(amiCleanupOptions, expect.any(Date), expect.any(Function));
   });
 
-  it('should not throw only log in error in case of an exception.', async () => {
+  it('logs and rethrows cleanup errors so the invocation is marked failed.', async () => {
     const logSpy = vi.spyOn(logger, 'error');
 
     const error = new Error('An error.');
     const mock = vi.mocked(amiCleanup);
     mock.mockRejectedValue(error);
-    await expect(handler(undefined, context)).resolves.toBeUndefined();
+    await expect(handler(undefined, context)).rejects.toThrow(error);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
   });
