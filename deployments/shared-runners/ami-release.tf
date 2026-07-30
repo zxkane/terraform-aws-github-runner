@@ -580,6 +580,7 @@ data "aws_iam_policy_document" "ami_promotion" {
     sid = "ReadAndWriteArchitectureChannels"
     actions = [
       "ssm:GetParameter",
+      "ssm:GetParameters",
       "ssm:PutParameter",
     ]
     resources = [

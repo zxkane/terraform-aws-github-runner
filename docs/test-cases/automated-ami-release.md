@@ -138,7 +138,7 @@
 | TC-AMI-509 | Attempt build from non-default branch token | AssumeRoleWithWebIdentity is denied |
 | TC-AMI-510 | Attempt promotion from branch subject or wrong environment | AssumeRoleWithWebIdentity is denied |
 | TC-AMI-511 | Inspect build policy | It cannot put active/previous/recovery parameters |
-| TC-AMI-512 | Inspect promotion policies | Each can read and write only its architecture's three channels and cannot create/deregister AMIs |
+| TC-AMI-512 | Inspect promotion policies | Each has `GetParameter`, alias-resolution `GetParameters` and `PutParameter` only on its architecture's three channels, and cannot create/deregister AMIs |
 | TC-AMI-513 | Plan recovery channel creation | Both exact recovery parameters are `aws:ec2:image`, initialize from pre-migration active and have `prevent_destroy` plus `ignore_changes=[value]` |
 | TC-AMI-514 | Inspect housekeeper channel configuration | Exactly six names are derived from the same channel locals in per-architecture active, previous, recovery order; no wildcard is used |
 | TC-AMI-515 | Inspect validator cleanup IAM | Build role can describe instances and terminate only release-managed validator instances selected by exact cleanup tags |

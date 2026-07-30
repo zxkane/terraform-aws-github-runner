@@ -250,10 +250,16 @@ if has_match 'AmazonSSMManagedInstanceCore' "$REPO_ROOT/$terraform_file"; then
 fi
 assert_contains "$terraform_file" 'ssmmessages:OpenControlChannel' \
   "builder and validator must use a minimal managed-node messaging policy"
-assert_contains "$terraform_file" '"ssm:GetParameter"' \
-  "promotion roles must read their architecture channels"
-assert_contains "$terraform_file" '"ssm:PutParameter"' \
-  "promotion roles must write their architecture channels"
+promotion_policy="$(
+  sed -n \
+    '/^data "aws_iam_policy_document" "ami_promotion" {$/,/^}$/p' \
+    "$REPO_ROOT/$terraform_file"
+)"
+for action in ssm:GetParameter ssm:GetParameters ssm:PutParameter; do
+  if ! grep -Fq "\"$action\"" <<<"$promotion_policy"; then
+    fail "promotion roles must allow $action on their architecture channels"
+  fi
+done
 assert_contains "$terraform_file" 'aws_ssm_parameter\.runner_ami_active\[each\.key\]\.arn' \
   "promotion role channel permissions must use the architecture active ARN"
 assert_contains "$terraform_file" 'aws_ssm_parameter\.runner_ami_previous\[each\.key\]\.arn' \
