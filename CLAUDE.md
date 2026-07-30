@@ -179,6 +179,12 @@ ARCH=arm64 ./scripts/02-build-ami.sh
 ARCH=amd64 ./scripts/02-build-ami.sh
 ```
 
+This script is break-glass/manual and does not create a managed release.
+Normal builds are dispatched by `.github/workflows/ami-release.yml`: every
+Monday at `02:37 UTC`, or manually for `all`, `amd64`, or `arm64`. Each
+architecture uses a private Session Manager builder and validates the final
+AMI on a separate SSM-managed On-Demand instance.
+
 AMI security/freshness baseline (both architectures must satisfy):
 - **IMDSv2-only**: Packer source has `imds_support = "v2.0"` so the resulting AMI registers IMDSv2-only. The Packer builder instance also has `metadata_options { http_tokens = "required" }` because AWS accounts with `httpTokensEnforced` reject any IMDSv1 launch
 - **Latest patches**: `apt-get -y upgrade` (with `force-confdef` + `force-confold`) at build time
@@ -192,18 +198,26 @@ Toolchain shared by both architectures: Node.js 24, Bun, Playwright Chromium, Do
 
 ### Rolling out a new AMI
 
-A successful Packer build alone does **not** put new runners on the new AMI. The Launch Template's `ImageId` is `resolve:ssm:<param>`, and that SSM parameter is written by `aws_ssm_parameter.runner_ami_id`, whose value is `data.aws_ami.runner.id` — a Terraform data source that's only re-evaluated on `terraform plan/apply`.
+Terraform owns the six active/previous/recovery parameter resources and ignores
+their values. Recovery is an internal durable compensation-protection channel,
+not an operator-selectable release. The release workflows own value changes:
 
-Procedure after `02-build-ami.sh` finishes:
+- `ami-promote.yml` validates an exact passed build attempt, writes
+  `(active, previous, recovery) = (candidate, old-active, old-previous)`, and
+  verifies the resolved Launch Template.
+- `ami-rollback.yml` stores old active in recovery, then restores
+  `active = previous` for one architecture.
+- Both use per-architecture non-cancelling concurrency and compensate failed
+  writes through read-back.
+- Auto-promotion defaults off independently for amd64 and arm64.
 
-1. `terraform plan` → expect `Plan: 0 to add, 2 to change, 0 to destroy.` (one SSM param per fleet; `value` + `ghr:ami_name` / `ghr:ami_creation_date` tags). LT, SQS, Lambda, IAM should be untouched. If the plan shows anything else, stop and investigate.
-2. `terraform apply tfplan && rm tfplan`.
-3. Verify the SSM parameters point at the new AMIs:
-   ```bash
-   aws ssm get-parameters --names \
-     /github-action-runners/gh-runner/linux-arm64/runners/config/ami_id \
-     /github-action-runners/gh-runner/linux-amd64/runners/config/ami_id
-   ```
+The housekeeper runs weekly in dry-run mode initially. After a reviewed full
+cycle, `ami_housekeeper_dry_run=false` enables deletion of unreferenced managed
+AMIs strictly older than seven days. Active, previous, recovery and resolved
+Launch Template images remain protected.
+
+See `deployments/shared-runners/RUNBOOK.md` for GitHub variable setup,
+promotion, rollback, monitoring and cleanup gates.
 
 After apply, **already-running spot instances keep the old AMI** (root volume was baked at launch). They get replaced when scale-down recycles them after `minimum_running_time_in_minutes` (15 min) of idle. To roll faster, terminate idle ones manually — but **don't terminate `busy=true` runners** unless you mean to kill the in-flight job. Use the GitHub App JWT to check `busy` per runner before terminating; the dispatcher pattern is in this file's history (search for `app/installations` + `actions/runners`).
 

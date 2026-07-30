@@ -20,6 +20,9 @@ env:
   AWS_REGION: eu-west-1
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Validation does not build. The alias keeps fork PR checks independent of
+  # repository configuration; release scripts accept only a 12-digit owner.
+  PKR_VAR_source_ami_owner: ${{ vars.AMI_SOURCE_OWNER_ID || 'self' }}
 
 jobs:
   verify_packer:

@@ -1,0 +1,46 @@
+name: Runner AMI release
+
+on:
+  schedule:
+    - cron: "37 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architecture to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - amd64
+          - arm64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-ami-release
+  cancel-in-progress: false
+
+jobs:
+  amd64:
+    name: Build amd64
+    if: github.event_name == 'schedule' || inputs.architecture == 'all' || inputs.architecture == 'amd64'
+    permissions:
+      contents: read
+      actions: read # Required if the build calls promotion.
+      id-token: write # Required for AWS OIDC role assumption.
+    uses: ./.github/workflows/ami-build.yml
+    with:
+      architecture: amd64
+
+  arm64:
+    name: Build arm64
+    if: github.event_name == 'schedule' || inputs.architecture == 'all' || inputs.architecture == 'arm64'
+    permissions:
+      contents: read
+      actions: read # Required if the build calls promotion.
+      id-token: write # Required for AWS OIDC role assumption.
+    uses: ./.github/workflows/ami-build.yml
+    with:
+      architecture: arm64

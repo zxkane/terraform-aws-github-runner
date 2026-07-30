@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$DEPLOY_DIR/../.." && pwd)"
 
 : "${GITHUB_APP_ID:?Set GITHUB_APP_ID env var}"
 : "${GITHUB_APP_KEY_BASE64:?Set GITHUB_APP_KEY_BASE64 env var (base64 -w 0 < app.pem)}"
@@ -12,6 +13,24 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 : "${TF_STATE_BUCKET:?Set TF_STATE_BUCKET env var}"
 
 cd "$DEPLOY_DIR"
+
+cleanup() {
+  rm -f "$DEPLOY_DIR/tfplan"
+}
+trap cleanup EXIT
+
+node_major="$(node -p 'process.versions.node.split(".")[0]')"
+if [[ "$node_major" != "24" ]]; then
+  echo "Node.js 24 is required to build Lambda artifacts" >&2
+  exit 1
+fi
+
+echo "Building Lambda artifacts..."
+(
+  cd "$REPO_ROOT/lambdas"
+  corepack yarn install --immutable
+  corepack yarn dist
+)
 
 # State backend uses S3 only — no DynamoDB locking. See CLAUDE.md
 # "State Locking 现状" for why and the upgrade path.
@@ -43,8 +62,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   terraform output -raw webhook_secret
   echo ""
   echo ""
-  echo "Runner label for CI workflow:"
-  terraform output runners_label
+  echo "Runner labels for CI workflows:"
+  terraform output runners_label_arm64
+  terraform output runners_label_amd64
 else
   echo "Cancelled."
 fi

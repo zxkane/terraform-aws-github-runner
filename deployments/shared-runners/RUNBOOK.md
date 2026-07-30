@@ -28,12 +28,19 @@ export TF_STATE_BUCKET="<your-bucket-name>"
 ./scripts/01-create-tf-backend.sh
 ```
 
-## Step 3: Build Custom AMIs
+## Step 3: Break-Glass AMI Build
 
-Build both architectures (or just one, as needed):
+Normal AMI builds are scheduled through GitHub Actions as described below.
+For an operator-only build that does not enter the managed release channels:
 
 ```bash
 cd deployments/shared-runners
+config="$(terraform output -json ami_release_configuration)"
+export AMI_BUILDER_INSTANCE_PROFILE="$(jq -r '.builder_instance_profile_name' <<<"$config")"
+export AMI_BUILDER_SECURITY_GROUP_ID="$(jq -r '.builder_security_group_id' <<<"$config")"
+export AMI_SUBNET_ID="$(jq -r '.subnet_id' <<<"$config")"
+export AMI_SOURCE_OWNER_ID="<aws-account-id>" # Canonical's published account ID.
+
 ARCH=arm64 ./scripts/02-build-ami.sh
 ARCH=amd64 ./scripts/02-build-ami.sh
 ```
@@ -58,7 +65,165 @@ terraform output webhook_endpoint  # → set as Webhook URL
 terraform output -raw webhook_secret  # → set as Webhook secret
 ```
 
-## Step 6: Update CI Workflows
+## Step 6: Configure AMI Release Workflows
+
+After the first Terraform apply, configure the workflow repository variables
+from the `ami_release_configuration` output. These are environment-specific
+values and must not be committed:
+
+```bash
+config="$(terraform output -json ami_release_configuration)"
+repository="<owner>/<repo>"
+export AMI_SOURCE_OWNER_ID="<aws-account-id>" # Canonical's published account ID.
+
+gh variable set AMI_BUILD_ROLE_ARN --repo "$repository" \
+  --body "$(jq -r '.build_role_arn' <<<"$config")"
+gh variable set AMI_PROMOTION_ROLE_AMD64_ARN --repo "$repository" \
+  --body "$(jq -r '.promotion_role_arns.amd64' <<<"$config")"
+gh variable set AMI_PROMOTION_ROLE_ARM64_ARN --repo "$repository" \
+  --body "$(jq -r '.promotion_role_arns.arm64' <<<"$config")"
+gh variable set AMI_BUILDER_INSTANCE_PROFILE --repo "$repository" \
+  --body "$(jq -r '.builder_instance_profile_name' <<<"$config")"
+gh variable set AMI_VALIDATOR_INSTANCE_PROFILE --repo "$repository" \
+  --body "$(jq -r '.validator_instance_profile_name' <<<"$config")"
+gh variable set AMI_BUILDER_SECURITY_GROUP_ID --repo "$repository" \
+  --body "$(jq -r '.builder_security_group_id' <<<"$config")"
+gh variable set AMI_VALIDATOR_SECURITY_GROUP_ID --repo "$repository" \
+  --body "$(jq -r '.validator_security_group_id' <<<"$config")"
+gh variable set AMI_SUBNET_ID --repo "$repository" \
+  --body "$(jq -r '.subnet_id' <<<"$config")"
+gh variable set AMI_SOURCE_OWNER_ID --repo "$repository" \
+  --body "$AMI_SOURCE_OWNER_ID"
+gh variable set AMI_AUTO_PROMOTE_AMD64 --repo "$repository" --body false
+gh variable set AMI_AUTO_PROMOTE_ARM64 --repo "$repository" --body false
+```
+
+Create environments `runner-ami-production-amd64` and
+`runner-ami-production-arm64`. Restrict both to the default branch and require
+reviewers during the initial rollout. The IAM roles trust these exact
+environment subjects.
+
+### Build triggers
+
+`.github/workflows/ami-release.yml` is the only normal build scheduler:
+
+- Schedule: every Monday at `02:37 UTC` (`37 2 * * 1`).
+- Scheduled runs build amd64 and arm64 independently.
+- Manual dispatch accepts `all`, `amd64`, or `arm64`.
+- A failure in one architecture does not cancel the other.
+
+Manual examples:
+
+```bash
+gh workflow run ami-release.yml --ref "<default-branch>" -f architecture=all
+gh workflow run ami-release.yml --ref "<default-branch>" -f architecture=amd64
+gh workflow run ami-release.yml --ref "<default-branch>" -f architecture=arm64
+```
+
+Each build selects the latest Canonical Ubuntu 26.04 base AMI and the current
+package versions available at build time. Packer connects to a private builder
+through Session Manager. A separate On-Demand instance boots the final AMI and
+validates the toolchain before the AMI receives
+`ghr:validation_status=passed`.
+
+### Promotion and rollback
+
+Automatic promotion is disabled independently for both architectures until
+the rollout gates below are complete. Promote a passed build by its exact
+GitHub run ID and attempt:
+
+```bash
+gh workflow run ami-promote.yml --ref "<default-branch>" \
+  -f architecture=amd64 \
+  -f build_run_id="<run-id>" \
+  -f build_run_attempt="<attempt>"
+```
+
+Rollback is one level and leaves `previous` unchanged:
+
+```bash
+gh workflow run ami-rollback.yml --ref "<default-branch>" \
+  -f architecture=amd64
+```
+
+Promotion and rollback share a non-cancelling, per-architecture concurrency
+group. Do not update any of the six active, previous or recovery parameters
+manually while either workflow is running. Recovery is an internal durable
+protection channel, not a release an operator selects. Every channel write is
+confirmed through bounded read-back because `aws:ec2:image` updates are
+asynchronous. If any channel is unreadable or contains a value outside the
+workflow's expected transition, the workflow stops without overwriting that
+external state.
+
+### Initial rollout gates
+
+1. Confirm the migration plan contains exact moves for both active parameters,
+   creates both previous and both recovery parameters with matching values, and
+   has no deletes.
+2. Run one manual build for both architectures with both auto-promotion
+   variables `false`.
+3. Manually promote one architecture and monitor real jobs before promoting
+   the other.
+4. Record three consecutive successful weekly builds for each architecture.
+5. Run representative CI workloads and a rollback drill.
+6. Set only that architecture's `AMI_AUTO_PROMOTE_*` variable to `true`, remove
+   required reviewers from the matching environment, and retain its
+   default-branch restriction. To disable it later, set the variable `false`
+   before restoring required reviewers.
+
+### Monitoring a promoted AMI
+
+Check channel and Launch Template convergence without printing values into a
+public artifact:
+
+```bash
+aws ssm get-parameters --region us-east-1 --names \
+  /github-action-runners/gh-runner/linux-amd64/runners/config/ami_id \
+  /github-action-runners/gh-runner/linux-amd64/runners/config/ami_previous_id \
+  /github-action-runners/gh-runner/linux-arm64/runners/config/ami_id \
+  /github-action-runners/gh-runner/linux-arm64/runners/config/ami_previous_id
+
+aws ec2 describe-launch-template-versions --region us-east-1 \
+  --launch-template-name gh-runner-linux-amd64-action-runner \
+  --versions '$Default' --resolve-alias
+```
+
+Already-running runners keep their original AMI. New runners use the promoted
+active channel. During the observation window, verify:
+
+- New EC2 runners use the promoted AMI and register with the expected labels.
+- Representative amd64 and arm64 jobs complete.
+- Lighthouse jobs no longer run the Chrome installer and complete normally.
+- Scale-up, runner startup, SSM and workflow logs contain no new errors.
+
+### Seven-day cleanup
+
+The AMI housekeeper protects all six active/previous/recovery channels and both
+resolved default Launch Templates. It considers only release-managed,
+unreferenced AMIs strictly older than 168 hours.
+
+Keep `ami_housekeeper_dry_run=true` for at least one full weekly cycle. Review
+the logged candidate set, then apply:
+
+```bash
+terraform plan -var="ami_housekeeper_dry_run=false" ...
+terraform apply tfplan
+```
+
+Snapshot deletion is explicit and awaited. Shared/in-use snapshots are
+retained; other cleanup errors fail the invocation. Candidate AMIs are fully
+paginated before deletion starts. If AMI deregistration returns an unknown
+result, the housekeeper confirms that the AMI is no longer available before
+deleting snapshots and never retries the mutation blindly. Restore dry-run by
+setting the variable to `true`.
+
+The initial implementation has no durable deletion journal. If the Lambda
+process stops after AMI deregistration is confirmed but before every snapshot
+is deleted, a later invocation cannot rediscover those snapshots through the
+AMI. Treat orphan snapshot discovery and removal as an operator task until a
+journal or tagged snapshot sweep is added.
+
+## Step 7: Update Consumer CI Workflows
 
 Pick the architecture each project needs. Both labels are exact-match — jobs do not cross between fleets.
 
@@ -89,7 +254,7 @@ Set repo variable `RUNNER_LABEL` to `["self-hosted", "linux", "arm64"]` or `["se
 | Allocation strategy | `price-capacity-optimized` | `price-capacity-optimized` |
 | Idle timeout | 15 minutes | 15 minutes |
 | Webhook delay | 30s | 30s |
-| AMI | `github-runner-ubuntu-resolute-arm64-*` | `github-runner-ubuntu-resolute-amd64-*` |
+| AMI | active arm64 SSM channel | active amd64 SSM channel |
 | Root volume | 60 GB encrypted gp3 | 60 GB encrypted gp3 |
 
 ## Per-Project Usage Tracking
