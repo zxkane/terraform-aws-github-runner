@@ -100,7 +100,15 @@ case "$service:$operation" in
           touch "$AMI_TEST_RECOVERY_DRIFTED"
         fi
         [[ "${unreadable_active:-false}" != "true" ]] || exit 255
-        printf '%s\n' "$active"
+        active_observed="$active"
+        if [[ "${RESTORE_ACTIVE_AFTER_LT_DRIFT:-false}" == "true" &&
+          -f "$AMI_TEST_LT_DRIFTED" &&
+          ! -f "$AMI_TEST_LT_RESTORED" ]]; then
+          active="$candidate"
+          save_state
+          touch "$AMI_TEST_LT_RESTORED"
+        fi
+        printf '%s\n' "$active_observed"
         ;;
     esac
     ;;
@@ -178,6 +186,23 @@ case "$service:$operation" in
       save_state
       exit 255
     fi
+    if [[ -n "${DELAY_LT_RESOLVE_READS:-}" ]]; then
+      lt_reads="$(cat "$AMI_TEST_LT_READS")"
+      if ((lt_reads < DELAY_LT_RESOLVE_READS)); then
+        printf '%s\n' "$((lt_reads + 1))" >"$AMI_TEST_LT_READS"
+        printf '%s\n' "$previous"
+        exit 0
+      fi
+    fi
+    if [[ -n "${DRIFT_ACTIVE_ON_MATCHING_LT:-}" &&
+      ! -f "$AMI_TEST_LT_DRIFTED" ]]; then
+      resolved="$active"
+      active="$DRIFT_ACTIVE_ON_MATCHING_LT"
+      save_state
+      touch "$AMI_TEST_LT_DRIFTED"
+      printf '%s\n' "$resolved"
+      exit 0
+    fi
     printf '%s\n' "$active"
     ;;
   *)
@@ -198,8 +223,10 @@ reset_state() {
     "ami-ccccccccccccccccc" > "$tmp_dir/state"
   : > "$tmp_dir/calls"
   : > "$tmp_dir/attempts"
+  printf '0\n' >"$tmp_dir/lt-reads"
   rm -f "$tmp_dir/active-failed"
   rm -f "$tmp_dir/recovery-established" "$tmp_dir/recovery-drifted"
+  rm -f "$tmp_dir/lt-drifted" "$tmp_dir/lt-restored"
 }
 
 run_channel() {
@@ -211,9 +238,13 @@ run_channel() {
     AMI_TEST_CALLS="$tmp_dir/calls" \
     AMI_TEST_ATTEMPTS="$tmp_dir/attempts" \
     AMI_TEST_ACTIVE_FAILED="$tmp_dir/active-failed" \
+    AMI_TEST_LT_READS="$tmp_dir/lt-reads" \
+    AMI_TEST_LT_DRIFTED="$tmp_dir/lt-drifted" \
+    AMI_TEST_LT_RESTORED="$tmp_dir/lt-restored" \
     AMI_TEST_RECOVERY_ESTABLISHED="$tmp_dir/recovery-established" \
     AMI_TEST_RECOVERY_DRIFTED="$tmp_dir/recovery-drifted" \
     AMI_CHANNEL_DEADLINE_SECONDS=1 \
+    AMI_CHANNEL_LT_DEADLINE_SECONDS="${AMI_TEST_LT_DEADLINE_SECONDS:-1}" \
     AMI_CHANNEL_POLL_SECONDS=0.05 \
     "$CHANNEL_SCRIPT" "$@"
 }
@@ -260,6 +291,31 @@ TIMEOUT_PREVIOUS_AFTER_APPLY=true TIMEOUT_ACTIVE_AFTER_APPLY=true \
 assert_state "ami-ccccccccccccccccc" "ami-aaaaaaaaaaaaaaaaa"
 [[ "$(cat "$tmp_dir/calls")" == $'previous=ami-aaaaaaaaaaaaaaaaa\nactive=ami-ccccccccccccccccc' ]] ||
   fail "applied writes with timeout responses must not be repeated"
+
+reset_state
+AMI_TEST_LT_DEADLINE_SECONDS=3 DELAY_LT_RESOLVE_READS=5 \
+  run_channel promote --build-run-id 123 --build-run-attempt 2 --source-revision "$source_revision"
+assert_state "ami-ccccccccccccccccc" "ami-aaaaaaaaaaaaaaaaa"
+[[ "$(cat "$tmp_dir/lt-reads")" == "5" ]] ||
+  fail "promotion must use its extended deadline for stale Launch Template alias resolutions"
+
+reset_state
+if DRIFT_ACTIVE_ON_MATCHING_LT=ami-ddddddddddddddddd \
+  run_channel promote --build-run-id 123 --build-run-attempt 2 --source-revision "$source_revision"; then
+  fail "matching Launch Template alias must not hide channel drift"
+fi
+assert_state "ami-ddddddddddddddddd" "ami-aaaaaaaaaaaaaaaaa" "ami-bbbbbbbbbbbbbbbbb"
+[[ "$(cat "$tmp_dir/calls")" == $'previous=ami-aaaaaaaaaaaaaaaaa\nactive=ami-ccccccccccccccccc' ]] ||
+  fail "channel drift during Launch Template verification must prevent compensation writes"
+
+reset_state
+if DRIFT_ACTIVE_ON_MATCHING_LT=ami-ddddddddddddddddd RESTORE_ACTIVE_AFTER_LT_DRIFT=true \
+  run_channel promote --build-run-id 123 --build-run-attempt 2 --source-revision "$source_revision"; then
+  fail "observed Launch Template verification drift must not become retryable"
+fi
+assert_state "ami-aaaaaaaaaaaaaaaaa" "ami-bbbbbbbbbbbbbbbbb" "ami-bbbbbbbbbbbbbbbbb"
+[[ "$(cat "$tmp_dir/calls")" == $'previous=ami-aaaaaaaaaaaaaaaaa\nactive=ami-ccccccccccccccccc\nactive=ami-aaaaaaaaaaaaaaaaa\nprevious=ami-bbbbbbbbbbbbbbbbb' ]] ||
+  fail "restored drift must still enter the documented compensation path"
 
 reset_state
 sed -i 's/previous=ami-bbbbbbbbbbbbbbbbb/previous=ami-aaaaaaaaaaaaaaaaa/' "$tmp_dir/state"

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 readonly DEADLINE_SECONDS="${AMI_CHANNEL_DEADLINE_SECONDS:-120}"
+readonly LAUNCH_TEMPLATE_DEADLINE_SECONDS="${AMI_CHANNEL_LT_DEADLINE_SECONDS:-900}"
 readonly POLL_SECONDS="${AMI_CHANNEL_POLL_SECONDS:-3}"
 readonly MAX_POLL_SECONDS="${AMI_CHANNEL_MAX_POLL_SECONDS:-15}"
 readonly AWS_CLI_TIMEOUT_SECONDS="${AMI_CHANNEL_AWS_CLI_TIMEOUT_SECONDS:-15}"
@@ -61,8 +62,12 @@ now_ms() {
   awk '{ printf "%.0f\n", $1 * 1000 }' /proc/uptime
 }
 
+deadline_after() {
+  printf '%s\n' "$(($(now_ms) + $1 * 1000))"
+}
+
 deadline_epoch() {
-  printf '%s\n' "$(($(now_ms) + DEADLINE_SECONDS * 1000))"
+  deadline_after "$DEADLINE_SECONDS"
 }
 
 run_aws_until() {
@@ -257,14 +262,23 @@ resolved_launch_template_image() {
 }
 
 wait_for_launch_template() {
-  local expected="$1"
+  local expected_image="$1"
+  local expected_active="$2"
+  local expected_previous="$3"
+  local expected_recovery="$4"
   local deadline
   local observed
   local attempt=0
-  deadline="$(deadline_epoch)"
+  # EC2's resolved SSM alias view can lag behind Parameter Store read-back.
+  deadline="$(deadline_after "$LAUNCH_TEMPLATE_DEADLINE_SECONDS")"
 
   while (($(now_ms) < deadline)); do
-    if observed="$(resolved_launch_template_image "$deadline" 2>/dev/null)" && [[ "$observed" == "$expected" ]]; then
+    if observed="$(resolved_launch_template_image "$deadline" 2>/dev/null)" &&
+      [[ "$observed" == "$expected_image" ]]; then
+      read_channels "$deadline" || return 1
+      [[ "$CHANNEL_ACTIVE" == "$expected_active" &&
+        "$CHANNEL_PREVIOUS" == "$expected_previous" &&
+        "$CHANNEL_RECOVERY" == "$expected_recovery" ]] || return 1
       return 0
     fi
     bounded_poll_sleep "$deadline" "$attempt" || break
@@ -408,6 +422,7 @@ promote() {
   local candidate_epoch
   local active_before
   local previous_before
+  local recovery_before
   local evaluation_epoch
 
   while (($#)); do
@@ -475,7 +490,15 @@ promote() {
   validate_channel_image "$previous_before" || die "previous channel does not reference a valid image"
 
   if [[ "$candidate" == "$active_before" ]]; then
-    wait_for_launch_template "$candidate" || die "launch template did not resolve to the active candidate"
+    if ! read_channels ||
+      [[ "$CHANNEL_ACTIVE" != "$active_before" ]] ||
+      [[ "$CHANNEL_PREVIOUS" != "$previous_before" ]]; then
+      die "channels changed before active candidate verification"
+    fi
+    recovery_before="$CHANNEL_RECOVERY"
+    wait_for_launch_template \
+      "$candidate" "$active_before" "$previous_before" "$recovery_before" ||
+      die "launch template did not resolve to the active candidate"
     return 0
   fi
 
@@ -520,7 +543,8 @@ promote() {
           ;;
       esac
     fi
-    if wait_for_launch_template "$candidate"; then
+    if wait_for_launch_template \
+      "$candidate" "$candidate" "$active_before" "$previous_before"; then
       return 0
     fi
     fail_after_promotion_write \
@@ -564,7 +588,8 @@ promote() {
         ;;
     esac
   fi
-  if ! wait_for_launch_template "$candidate"; then
+  if ! wait_for_launch_template \
+    "$candidate" "$candidate" "$active_before" "$previous_before"; then
     fail_after_promotion_write \
       "promotion verification did not converge" \
       "$active_before" \
@@ -578,6 +603,7 @@ rollback() {
 
   local active_before
   local previous_before
+  local recovery_before
 
   active_before="$(read_parameter "$ACTIVE_PARAMETER")" || die "active channel is unreadable"
   previous_before="$(read_parameter "$PREVIOUS_PARAMETER")" || die "previous channel is unreadable"
@@ -587,7 +613,15 @@ rollback() {
   validate_channel_image "$previous_before" || die "previous channel does not reference a valid image"
 
   if [[ "$active_before" == "$previous_before" ]]; then
-    wait_for_launch_template "$active_before" || die "launch template did not resolve to active"
+    if ! read_channels ||
+      [[ "$CHANNEL_ACTIVE" != "$active_before" ]] ||
+      [[ "$CHANNEL_PREVIOUS" != "$previous_before" ]]; then
+      die "channels changed before active image verification"
+    fi
+    recovery_before="$CHANNEL_RECOVERY"
+    wait_for_launch_template \
+      "$active_before" "$active_before" "$previous_before" "$recovery_before" ||
+      die "launch template did not resolve to active"
     return 0
   fi
 
@@ -616,7 +650,8 @@ rollback() {
         ;;
     esac
   fi
-  if wait_for_launch_template "$previous_before"; then
+  if wait_for_launch_template \
+    "$previous_before" "$previous_before" "$previous_before" "$active_before"; then
     return 0
   fi
 

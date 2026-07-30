@@ -355,10 +355,15 @@ assert_contains ".github/workflows/ami-promote.yml" 'timeout-minutes:[[:space:]]
   "promotion timeout must cover the longest compensation path"
 assert_contains ".github/workflows/ami-rollback.yml" 'timeout-minutes:[[:space:]]*(4[5-9]|[5-9][0-9]|[1-9][0-9]{2,})' \
   "rollback timeout must cover the longest compensation path"
-assert_contains ".github/workflows/ami-build.yml" 'AMI_AUTO_PROMOTE_AMD64' \
-  "amd64 auto-promotion must have an independent switch"
-assert_contains ".github/workflows/ami-build.yml" 'AMI_AUTO_PROMOTE_ARM64' \
-  "arm64 auto-promotion must have an independent switch"
+assert_contains "deployments/shared-runners/scripts/ami-channel.sh" \
+  'AMI_CHANNEL_LT_DEADLINE_SECONDS:-900' \
+  "Launch Template alias convergence must allow fifteen minutes"
+assert_contains ".github/workflows/ami-build.yml" \
+  "vars\\.AMI_AUTO_PROMOTE_AMD64[[:space:]]*==[[:space:]]*'true'" \
+  "amd64 auto-promotion must require its independent switch to be exactly true"
+assert_contains ".github/workflows/ami-build.yml" \
+  "vars\\.AMI_AUTO_PROMOTE_ARM64[[:space:]]*==[[:space:]]*'true'" \
+  "arm64 auto-promotion must require its independent switch to be exactly true"
 assert_contains "lambdas/functions/ami-housekeeper/src/ami.ts" 'maxAttempts:[[:space:]]*1' \
   "housekeeper AMI mutations must disable automatic SDK retries"
 assert_contains "lambdas/functions/ami-housekeeper/src/ami.ts" \

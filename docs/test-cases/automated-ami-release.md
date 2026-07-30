@@ -14,7 +14,7 @@
 | TC-AMI-007 | Inspect weekly trigger | Cron is exactly `37 2 * * 1`; both architecture callers are enabled |
 | TC-AMI-008 | Inspect channel writer concurrency | Per-architecture promote and rollback group matches and has `cancel-in-progress: false` |
 | TC-AMI-008A | Inspect build concurrency | Build concurrency is per architecture with `cancel-in-progress: false`; amd64 and arm64 runs never share a build group |
-| TC-AMI-009 | Inspect default rollout configuration | Both architecture auto-promotion switches default to disabled |
+| TC-AMI-009 | Inspect default rollout configuration | Workflow setup sets both architecture auto-promotion switches to `true`; each workflow gate requires its matching value to be exactly `true` |
 | TC-AMI-010 | Scan workflow outputs, credentials steps and artifacts | Every AWS credentials step enables account ID masking; account, AMI, instance and infrastructure IDs are masked or sanitized before replay; no raw Packer manifest is uploaded |
 | TC-AMI-011 | Evaluate build-role IAM and Session Manager transport | Resource creation/mutation requires managed tags, launch inputs are scoped, Packer can use `AWS-StartPortForwardingSession`, and session cleanup is limited to the caller's sessions |
 | TC-AMI-011A | Terminate a Packer session created by the federated build role | Access is limited by the Session Manager session-id resource tag matching `${aws:userid}` |
@@ -82,7 +82,7 @@
 | TC-AMI-304 | Previous write times out after applying | Deadline-bounded read-back recognizes `(A,A,P)` and continues without repeating the write |
 | TC-AMI-305 | After a destructive write, a channel becomes unreadable or changes outside `(A,P,P)`, `(A,A,P)`, `(C,A,P)` | Workflow performs no further write and ends `COMPENSATION_FAILED` |
 | TC-AMI-306 | Active write fails or times out | Observed state is reconciled, then compensation restores `(A,P)` |
-| TC-AMI-307 | Parameter or LT resolution does not converge within 120 seconds | Compensation restores and verifies `(A,P)` |
+| TC-AMI-307 | Parameter resolution does not converge within 120 seconds, or LT alias resolution does not converge within 15 minutes | Compensation restores and verifies `(A,P)` |
 | TC-AMI-308 | Active compensation succeeds but previous compensation fails | Workflow ends `COMPENSATION_FAILED` with observed state logged |
 | TC-AMI-309 | Force-cancel before active write, then rerun | Rerun safely reaches `(C,A)` |
 | TC-AMI-310 | Force-cancel after active write, then rerun | Rerun recognizes active C, leaves previous A and succeeds |
@@ -102,6 +102,9 @@
 | TC-AMI-324 | Final promotion convergence observes `(C,A,X)` | It cannot succeed on the `(C,A)` projection; no further write is issued and the result is `COMPENSATION_FAILED` |
 | TC-AMI-325 | Promotion starts with `R=P`, or with `P=A` | It skips the corresponding redundant recovery or previous mutation, still performs a full-tuple read, and reaches `(C,A,P)` |
 | TC-AMI-326 | A channel AWS request hangs or a mutation result is transport-ambiguous | Request ends within min(30 seconds, phase remaining); no request starts at the deadline and no ambiguous mutation is retried |
+| TC-AMI-327 | LT alias resolution remains stale after channel convergence and then resolves to C | Promotion polls for up to 15 minutes and succeeds without compensating |
+| TC-AMI-328 | LT alias resolves to C while the channel tuple drifts | Promotion does not report success; the unexpected tuple is not overwritten |
+| TC-AMI-329 | LT alias resolves to C, the tuple drifts for one read, then returns to `(C,A,P)` | The first observed drift fails verification and enters compensation; it is not retried into false success |
 
 ## Rollback
 
@@ -178,12 +181,12 @@ covered by the in-invocation deletion tests.
 
 | ID | Scenario | Expected result |
 |---|---|---|
-| TC-AMI-701 | First scheduled rollout | Both architectures build and validate; neither auto-promotes |
+| TC-AMI-701 | First scheduled rollout | Both architectures build and validate independently; each passed candidate auto-promotes |
 | TC-AMI-702 | Manual promotion or rollback | Correct architecture environment and default-branch restriction apply |
-| TC-AMI-702A | Verify production environments before first channel mutation | Both exact environments restrict deployments to the default branch and have at least one required reviewer before promotion or rollback is triggered |
-| TC-AMI-703 | Only amd64 gate is complete, its protected variable is true, and its environment reviewers are removed while default-branch restriction remains | amd64 may auto-promote through that environment; arm64 remains build-and-validate only |
-| TC-AMI-704 | Fewer than three consecutive clean cycles or missing workload/drill evidence | Corresponding switch remains disabled |
+| TC-AMI-702A | Verify production environments before first channel mutation | Both exact environments restrict deployments to the default branch and have no required reviewer or wait timer |
+| TC-AMI-703 | Only the amd64 auto-promotion variable is `true` | amd64 auto-promotes after validation; arm64 remains build-and-validate only |
+| TC-AMI-704 | Build or final-image validation fails | The affected architecture does not invoke promotion; the other architecture remains independent |
 | TC-AMI-705 | Housekeeper first full weekly cycle | `dryRun=true`; candidate logs are reviewed before live mode |
 | TC-AMI-706 | Manual promotion reaches real fleet | New instances resolve the promoted AMI while already-running instances remain unchanged |
 | TC-AMI-707 | Rollback drill | New instances resolve previous; previous remains unchanged; forward promotion still succeeds |
-| TC-AMI-708 | Disable auto-promotion for one architecture | Variable is set false before required reviewers are restored; later builds validate only and manual promotion still targets the protected environment |
+| TC-AMI-708 | Disable auto-promotion for one architecture | Variable is set to `false`; later builds validate only, no environment protection change is needed, and manual promotion still targets the branch-restricted environment |
