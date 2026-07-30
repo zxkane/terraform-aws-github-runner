@@ -11,9 +11,10 @@ week. Promote or roll back each architecture independently through existing
 SSM Parameter Store channels, and delete unreferenced release AMIs after seven
 days.
 
-The first rollout builds and validates only. Automatic promotion remains
-disabled until an operator has reviewed three consecutive weekly builds, run a
-representative workload, and completed a rollback drill for that architecture.
+Each architecture automatically promotes after its build and final-AMI
+validator succeed. No human deployment review is part of the release gate.
+An architecture-specific repository variable can pause automatic promotion,
+and the one-level rollback workflow remains available for recovery.
 
 ## Components
 
@@ -28,7 +29,7 @@ GitHub-hosted Actions (ubuntu-24.04)
   +-- ami-build.yml (reusable, one architecture)
   |     +-- Packer build over Session Manager
   |     +-- final-AMI validator over SSM Run Command
-  |     +-- optional architecture-scoped auto-promotion
+  |     +-- architecture-scoped auto-promotion
   |
   +-- ami-promote.yml (manual release_id promotion)
   +-- ami-rollback.yml (manual previous-channel rollback)
@@ -295,8 +296,8 @@ before candidate lookup, then captures its own `A = active`, `P = previous` and
 
 1. Validate `A`, `P` and `C` are available, account-owned images of the target
    architecture and validate the exact release identity for `C`.
-2. If `C == A`, perform no writes, leave `P` unchanged, verify within 120
-   seconds that the Launch
+2. If `C == A`, perform no writes, leave `P` unchanged, verify within 15
+   minutes that the Launch
    Template resolves to `C`, and succeed.
 3. For `C != A`, require `CreationDate > T - 168 hours`. Equality is too old.
    The gate uses the frozen `T`, not `release_id` or a later wall-clock read.
@@ -322,20 +323,24 @@ before candidate lookup, then captures its own `A = active`, `P = previous` and
    unreadable channel after the active mutation ends `COMPENSATION_FAILED`
    without another write.
 9. Run `DescribeLaunchTemplateVersions` for `$Default` with
-   `ResolveAlias=true` for at most 120 seconds until the resolved ImageId equals
-   `C`.
+   `ResolveAlias=true` for at most 15 minutes until the resolved ImageId equals
+   `C`, then re-read and require the complete tuple `(C,A,P)` before success.
+   A readable tuple mismatch or unreadable channel at that point fails
+   immediately; it is not retried as alias propagation.
 
-Each write read-back and each final channel or Launch Template convergence
-phase owns a fresh 120-second deadline. Because `aws:ec2:image` validation is
-asynchronous, an HTTP success from `PutParameter` is never sufficient. The
-workflow polls with bounded backoff: observing the target classifies the write
-as applied; observing only the captured source value through the deadline
-classifies it as unchanged; an unexpected readable value is external drift;
-and a deadline with no readable value is unknown. It never repeats a write
-whose result is uncertain. After recovery is confirmed, every reconciliation,
-write read-back, final convergence check and compensation read evaluates the
-full `(active,previous,recovery)` tuple. A two-channel projection MUST NOT
-authorize a write or success.
+Each write read-back and final channel convergence phase owns a fresh
+120-second deadline. Launch Template alias convergence has a separate
+15-minute deadline because EC2's resolved view can lag behind successful
+Parameter Store read-back. Because `aws:ec2:image` validation is asynchronous,
+an HTTP success from `PutParameter` is never sufficient. The workflow polls
+with bounded backoff: observing the target classifies the write as applied;
+observing only the captured source value through the deadline classifies it as
+unchanged; an unexpected readable value is external drift; and a deadline with
+no readable value is unknown. It never repeats a write whose result is
+uncertain. After recovery is confirmed, every reconciliation, write read-back,
+final convergence check and compensation read evaluates the full
+`(active,previous,recovery)` tuple. A two-channel projection MUST NOT authorize
+a write or success.
 
 After recovery is confirmed, the only workflow-owned tuples for that invocation
 are:
@@ -375,9 +380,11 @@ Rollback accepts only `architecture` and captures
    skipped because `R==A`.
 4. From `(A,P,A)`, issue exactly one `active=P` write; previous and recovery
    remain unchanged.
-5. With independent 120-second deadlines, verify the complete tuple equals
-   `(P,P,A)` and the `$Default` Launch Template with `ResolveAlias=true`
-   resolves to `P`.
+5. With an independent 120-second channel deadline and 15-minute Launch
+   Template alias deadline, verify the complete tuple equals `(P,P,A)` and the
+   `$Default` Launch Template with `ResolveAlias=true` resolves to `P`. Re-read
+   and require `(P,P,A)` when the alias matches before reporting success. A
+   readable tuple mismatch or unreadable channel fails immediately.
 6. If write read-back or verification fails, read all three channels again.
    `(A,P,A)` means the write did not apply or was already restored: perform no
    write and fail normally. `(P,P,A)` allows one compensation write restoring
@@ -400,8 +407,9 @@ Rollback is intentionally one level. It is not an active/previous swap.
   `repo:<owner>/<repo>:environment:runner-ami-production-amd64`.
 - The arm64 promotion role trusts only
   `repo:<owner>/<repo>:environment:runner-ami-production-arm64`.
-- Both environments restrict deployments to the default branch. Manual
-  promotion and rollback initially require reviewers.
+- Both environments restrict deployments to the default branch and have no
+  required reviewers or wait timer. The environment binding supplies the
+  architecture-specific OIDC subject, not a human approval gate.
 - The build role cannot write channel parameters.
 - The build role launches only tagged `t3.large`/`t4g.large` instances in the
   configured subnet with the builder or validator profile. Create/tag/image and
@@ -501,41 +509,35 @@ under GitHub's concurrency semantics. No build in one architecture blocks the
 other architecture. A failure in one architecture never cancels or blocks the
 other.
 
-Auto-promotion is controlled by two protected repository variables, both
-initially `false`:
+Auto-promotion is controlled by two repository variables, both configured
+`true` during workflow setup:
 
 - `AMI_AUTO_PROMOTE_AMD64`
 - `AMI_AUTO_PROMOTE_ARM64`
 
-For each architecture, the runbook records three consecutive successful weekly
-build-and-validation run URLs, representative workload evidence and a
-successful rollback drill. Enabling automatic promotion requires two operator
-actions applied together: set only that architecture's repository variable to
-`true`, and remove required reviewers from its
-`runner-ami-production-<architecture>` environment while retaining the
-default-branch deployment restriction. The variable alone does not enable
-unattended promotion because the job remains pending approval. Disabling
-automatic promotion performs the inverse in safe order: set the variable
-`false`, then restore required reviewers. Both automatic and manual promotion
-target that same environment. Rollback remains an explicit manual command.
+The reusable build workflow invokes promotion only when the matching variable
+is exactly `true`; a missing value or explicit `false` pauses that architecture
+without affecting build and validation. The
+`runner-ami-production-<architecture>` environments retain their
+default-branch deployment restriction but do not require human approval.
+Both automatic and manual promotion target the same environment. Rollback
+remains an explicit manual command.
 
 Rollout order:
 
 1. Apply the moved active parameters, create previous channels, IAM roles,
    profiles and zero-ingress security groups.
 2. Configure both `runner-ami-production-<architecture>` environments, then
-   verify each restricts deployments to the default branch and has at least
-   one required reviewer. Do not trigger promotion or rollback before this
-   check passes.
+   verify each restricts deployments to the default branch and has no required
+   reviewer or wait timer.
 3. Verify the plan has no active parameter replacement and both previous values
    equal their active value.
-4. Enable scheduled build and final-image validation with both auto-promotion
-   switches false.
-5. Manually promote one architecture, observe real runner jobs, then promote the
-   other.
-6. Complete and record a rollback drill.
+4. Set both auto-promotion switches to `true` and enable scheduled build and
+   final-image validation.
+5. Run both architecture builds once; each successful validator automatically
+   promotes its candidate independently.
+6. Observe real runner jobs and verify the rollback workflow is ready.
 7. Run housekeeper dry-run for at least one complete weekly cycle. Review the
    complete candidate set and confirm every candidate is outside the protected
    channel and Launch Template set.
 8. Enable live cleanup.
-9. Enable automatic promotion independently only after its evidence gate.
