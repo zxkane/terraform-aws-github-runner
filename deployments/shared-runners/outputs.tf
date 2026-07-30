@@ -20,7 +20,7 @@ output "runners_label_amd64" {
 }
 
 output "ami_release_configuration" {
-  description = "Values to configure as GitHub Actions repository variables after apply"
+  description = "Values to configure as GitHub Actions repository secrets after apply"
   value = {
     build_role_arn                  = aws_iam_role.ami_build.arn
     promotion_role_arns             = { for architecture, role in aws_iam_role.ami_promotion : architecture => role.arn }

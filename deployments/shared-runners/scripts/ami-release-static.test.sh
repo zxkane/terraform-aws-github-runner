@@ -60,6 +60,118 @@ for workflow in "${workflows[@]}"; do
   done < <(sed -nE 's/^[[:space:]]*-?[[:space:]]*uses:[[:space:]]*([^#[:space:]]+).*$/\1/p' "$REPO_ROOT/$workflow")
 done
 
+aws_workflows=(
+  ".github/workflows/ami-build.yml"
+  ".github/workflows/ami-promote.yml"
+  ".github/workflows/ami-rollback.yml"
+)
+
+for workflow in "${aws_workflows[@]}"; do
+  if ! awk '
+    /^      - / {
+      if (credentials_step && !masked) {
+        exit 1
+      }
+      credentials_step = 0
+      masked = 0
+    }
+    /uses:[[:space:]]*aws-actions\/configure-aws-credentials@/ {
+      credentials_step = 1
+      credentials_steps++
+    }
+    credentials_step && /^          mask-aws-account-id:[[:space:]]*true([[:space:]]*(#.*)?)?$/ {
+      masked = 1
+    }
+    END {
+      if (credentials_step && !masked) {
+        exit 1
+      }
+      if (credentials_steps == 0) {
+        exit 2
+      }
+    }
+  ' "$REPO_ROOT/$workflow"; then
+    fail "$workflow must mask the AWS account ID in every credentials step"
+  fi
+done
+
+if has_match 'group:[[:space:]]*runner-ami-release([[:space:]]|$)' \
+  "$REPO_ROOT/.github/workflows/ami-release.yml"; then
+  fail "release workflow must not serialize independent architectures"
+fi
+assert_contains ".github/workflows/ami-build.yml" \
+  'group:[[:space:]]*runner-ami-build-\$\{\{ inputs\.architecture \}\}' \
+  "build concurrency must be scoped to one architecture"
+assert_contains ".github/workflows/ami-build.yml" 'cancel-in-progress:[[:space:]]*false' \
+  "a newer build must not cancel a running build"
+for secret_name in \
+  AMI_BUILD_ROLE_ARN \
+  AMI_BUILDER_INSTANCE_PROFILE \
+  AMI_BUILDER_SECURITY_GROUP_ID \
+  AMI_SOURCE_OWNER_ID \
+  AMI_SUBNET_ID \
+  AMI_VALIDATOR_INSTANCE_PROFILE \
+  AMI_VALIDATOR_SECURITY_GROUP_ID; do
+  assert_contains ".github/workflows/ami-build.yml" "secrets\\.$secret_name" \
+    "$secret_name must be a pre-masked GitHub Actions secret"
+done
+for secret_name in AMI_PROMOTION_ROLE_AMD64_ARN AMI_PROMOTION_ROLE_ARM64_ARN; do
+  assert_contains ".github/workflows/ami-promote.yml" "secrets\\.$secret_name" \
+    "$secret_name must be a pre-masked GitHub Actions secret in promotion"
+  assert_contains ".github/workflows/ami-rollback.yml" "secrets\\.$secret_name" \
+    "$secret_name must be a pre-masked GitHub Actions secret in rollback"
+done
+if has_match 'vars\.AMI_(BUILD|BUILDER|PROMOTION|SOURCE|SUBNET|VALIDATOR)' \
+  "$REPO_ROOT/.github/workflows/ami-build.yml" \
+  "$REPO_ROOT/.github/workflows/ami-promote.yml" \
+  "$REPO_ROOT/.github/workflows/ami-rollback.yml"; then
+  fail "static AMI infrastructure identifiers must not use unmasked repository variables"
+fi
+if has_match 'secrets:[[:space:]]*inherit' \
+  "$REPO_ROOT/.github/workflows/ami-release.yml" \
+  "$REPO_ROOT/.github/workflows/ami-build.yml"; then
+  fail "reusable workflows must receive only explicitly declared AMI secrets"
+fi
+assert_contains ".github/workflows/ami-build.yml" 'AMI_PROMOTION_ROLE_AMD64_ARN:[[:space:]]*\$\{\{ secrets\.AMI_PROMOTION_ROLE_AMD64_ARN \}\}' \
+  "automatic promotion must pass only its declared amd64 role secret"
+assert_contains ".github/workflows/ami-build.yml" 'AMI_PROMOTION_ROLE_ARM64_ARN:[[:space:]]*\$\{\{ secrets\.AMI_PROMOTION_ROLE_ARM64_ARN \}\}' \
+  "automatic promotion must pass only its declared arm64 role secret"
+
+# shellcheck disable=SC2016 # Match the literal shell variable in the target script.
+assert_contains "deployments/shared-runners/scripts/build-release-ami.sh" \
+  'echo "::add-mask::\$ami_id"' \
+  "the candidate AMI ID must be registered as a workflow mask"
+assert_contains "deployments/shared-runners/scripts/ami-log-sanitizer.sh" \
+  's/\[0-9\]\{12\}/<masked-account>/g' \
+  "Packer output must sanitize every AWS account ID before replay"
+assert_contains "deployments/shared-runners/scripts/ami-log-sanitizer.sh" \
+  's/ami-\[0-9a-f\]\{8,17\}/<masked-ami>/g' \
+  "Packer output must sanitize every AMI ID before replay"
+assert_contains "deployments/shared-runners/scripts/ami-log-sanitizer.sh" \
+  's/i-\[0-9a-f\]\{8,17\}/<masked-instance>/g' \
+  "Packer output must sanitize every builder instance ID before replay"
+assert_contains "deployments/shared-runners/scripts/ami-log-sanitizer.sh" \
+  'subnet|sg|vpc|snap|vol|eni' \
+  "Packer output must sanitize infrastructure resource IDs before replay"
+# shellcheck disable=SC2016 # Match the literal shell variable in the target script.
+assert_contains "deployments/shared-runners/scripts/build-release-ami.sh" \
+  'sanitize_ami_build_log "\$build_log"' \
+  "the build must sanitize captured Packer output before replay"
+assert_contains ".github/workflows/ami-release-checks.yml" 'ami-log-sanitizer\.test\.sh' \
+  "release checks must execute the log sanitizer behavior test"
+# shellcheck disable=SC2016 # Match the literal shell variable in the target script.
+assert_contains "deployments/shared-runners/scripts/validate-release-ami.sh" \
+  'echo "::add-mask::\$instance_id"' \
+  "the validator instance ID must be registered as a workflow mask"
+# shellcheck disable=SC2016 # Match the literal shell variable in the target script.
+assert_contains "deployments/shared-runners/scripts/cleanup-release-builders.sh" \
+  'echo "::add-mask::\$instance_id"' \
+  "builder cleanup must mask discovered instance IDs"
+# shellcheck disable=SC2016 # Match the literal shell variable in the target script.
+assert_contains "deployments/shared-runners/scripts/cleanup-release-validators.sh" \
+  'echo "::add-mask::\$instance_id"' \
+  "validator cleanup must mask discovered instance IDs"
+
 assert_contains ".github/workflows/ami-release.yml" "cron: ['\"]37 2 \\* \\* 1['\"]" \
   "weekly release cron must be Monday 02:37 UTC"
 assert_contains ".github/workflows/ami-release.yml" 'architecture:' \

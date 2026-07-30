@@ -57,7 +57,7 @@ GitHub scheduled workflows run from the default branch and are best-effort;
 | arm64 | `images/ubuntu-resolute-arm64` | `arm64` | `t4g.large` | `t4g.large` | Playwright Chromium; Google Chrome absent |
 
 Both templates use Packer's `most_recent=true` over one exact Canonical owner
-supplied through the validated `AMI_SOURCE_OWNER_ID` repository variable,
+supplied through the validated `AMI_SOURCE_OWNER_ID` repository secret,
 architecture-specific Ubuntu 26.04 Pro Server gp3 name filter,
 `root-device-type=ebs` and `virtualization-type=hvm`. API response order is not
 used. The resulting AMI records Packer's resolved source name in the
@@ -122,10 +122,17 @@ newest or other arbitrary match. After selection, the workflow reads the exact
 GitHub Actions run attempt and requires `ghr:source_revision` to equal its
 40-character `head_sha`.
 
-AMI IDs and AWS account identifiers are internal workflow values. Commands
-that can emit them write to a private temporary file with shell tracing
-disabled. The workflow registers masks before replaying sanitized output.
-Raw Packer manifests and AWS responses are never uploaded as artifacts.
+AMI IDs and AWS account identifiers are internal workflow values. Every
+`configure-aws-credentials` invocation enables `mask-aws-account-id`, which
+registers the assumed account ID and authenticated ARN as GitHub workflow
+masks. Static role, instance-profile, network and source-owner identifiers are
+GitHub Actions secrets, so the runner masks them before any step preamble is
+logged; reusable workflow callers explicitly pass only the secrets declared by
+the called workflow. Commands that can emit dynamic account or resource
+identifiers write to a private temporary file with shell tracing disabled.
+Scripts register known AMI and instance IDs as masks and sanitize captured
+account/AMI/infrastructure identifiers before replaying output. Raw Packer
+manifests and AWS responses are never uploaded as artifacts.
 
 ## Channel Contract
 
@@ -486,8 +493,13 @@ must discover and remove such snapshots manually.
 ## Trigger And Rollout
 
 `ami-release.yml` schedules both independent architecture jobs with
-`37 2 * * 1`. Manual dispatch selects `all`, `amd64` or `arm64`. A failure in
-one architecture never cancels or blocks the other.
+`37 2 * * 1`. Manual dispatch selects `all`, `amd64` or `arm64`. Build
+concurrency is scoped to `runner-ami-build-<architecture>` with
+`cancel-in-progress=false`: one build may run and one may remain pending for
+each architecture; a newer duplicate dispatch can replace that pending build
+under GitHub's concurrency semantics. No build in one architecture blocks the
+other architecture. A failure in one architecture never cancels or blocks the
+other.
 
 Auto-promotion is controlled by two protected repository variables, both
 initially `false`:
@@ -511,14 +523,19 @@ Rollout order:
 
 1. Apply the moved active parameters, create previous channels, IAM roles,
    profiles and zero-ingress security groups.
-2. Verify the plan has no active parameter replacement and both previous values
+2. Configure both `runner-ami-production-<architecture>` environments, then
+   verify each restricts deployments to the default branch and has at least
+   one required reviewer. Do not trigger promotion or rollback before this
+   check passes.
+3. Verify the plan has no active parameter replacement and both previous values
    equal their active value.
-3. Enable scheduled build and final-image validation with both auto-promotion
+4. Enable scheduled build and final-image validation with both auto-promotion
    switches false.
-4. Manually promote one architecture, observe real runner jobs, then promote the
+5. Manually promote one architecture, observe real runner jobs, then promote the
    other.
-5. Complete and record a rollback drill.
-6. Run housekeeper dry-run for at least one complete weekly cycle and compare
-   its candidate set with a live-mode preview.
-7. Enable live cleanup.
-8. Enable automatic promotion independently only after its evidence gate.
+6. Complete and record a rollback drill.
+7. Run housekeeper dry-run for at least one complete weekly cycle. Review the
+   complete candidate set and confirm every candidate is outside the protected
+   channel and Launch Template set.
+8. Enable live cleanup.
+9. Enable automatic promotion independently only after its evidence gate.

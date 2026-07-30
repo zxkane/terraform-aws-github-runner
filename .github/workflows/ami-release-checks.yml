@@ -37,6 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           bash deployments/shared-runners/scripts/ami-release-static.test.sh
+          bash deployments/shared-runners/scripts/ami-log-sanitizer.test.sh
           bash deployments/shared-runners/scripts/ami-channel.test.sh
           bash deployments/shared-runners/scripts/cleanup-release-builders.test.sh
           bash deployments/shared-runners/scripts/cleanup-release-validators.test.sh
@@ -50,6 +51,8 @@ jobs:
           shellcheck \
             deployments/shared-runners/scripts/02-build-ami.sh \
             deployments/shared-runners/scripts/03-deploy.sh \
+            deployments/shared-runners/scripts/ami-log-sanitizer.sh \
+            deployments/shared-runners/scripts/ami-log-sanitizer.test.sh \
             deployments/shared-runners/scripts/ami-channel.sh \
             deployments/shared-runners/scripts/ami-channel.test.sh \
             deployments/shared-runners/scripts/ami-release-static.test.sh \

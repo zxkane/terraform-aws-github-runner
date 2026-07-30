@@ -13,8 +13,9 @@
 | TC-AMI-006 | Manual release selects `all`, `amd64` or `arm64` | Only requested independent jobs run |
 | TC-AMI-007 | Inspect weekly trigger | Cron is exactly `37 2 * * 1`; both architecture callers are enabled |
 | TC-AMI-008 | Inspect channel writer concurrency | Per-architecture promote and rollback group matches and has `cancel-in-progress: false` |
+| TC-AMI-008A | Inspect build concurrency | Build concurrency is per architecture with `cancel-in-progress: false`; amd64 and arm64 runs never share a build group |
 | TC-AMI-009 | Inspect default rollout configuration | Both architecture auto-promotion switches default to disabled |
-| TC-AMI-010 | Scan workflow outputs and artifacts | AMI/account identifiers are masked before replay and no raw Packer manifest is uploaded |
+| TC-AMI-010 | Scan workflow outputs, credentials steps and artifacts | Every AWS credentials step enables account ID masking; account, AMI, instance and infrastructure IDs are masked or sanitized before replay; no raw Packer manifest is uploaded |
 | TC-AMI-011 | Evaluate build-role IAM and Session Manager transport | Resource creation/mutation requires managed tags, launch inputs are scoped, Packer can use `AWS-StartPortForwardingSession`, and session cleanup is limited to the caller's sessions |
 | TC-AMI-012 | Evaluate Packer create-time permissions | Build role can create and tag only managed temporary key pairs, instances, volumes, network interfaces, AMIs and snapshots required by both templates |
 | TC-AMI-013 | Set `imds_support = "v2.0"` on the final AMI | Build role permits `ModifyImageAttribute` only for managed release images |
@@ -176,6 +177,7 @@ covered by the in-invocation deletion tests.
 |---|---|---|
 | TC-AMI-701 | First scheduled rollout | Both architectures build and validate; neither auto-promotes |
 | TC-AMI-702 | Manual promotion or rollback | Correct architecture environment and default-branch restriction apply |
+| TC-AMI-702A | Verify production environments before first channel mutation | Both exact environments restrict deployments to the default branch and have at least one required reviewer before promotion or rollback is triggered |
 | TC-AMI-703 | Only amd64 gate is complete, its protected variable is true, and its environment reviewers are removed while default-branch restriction remains | amd64 may auto-promote through that environment; arm64 remains build-and-validate only |
 | TC-AMI-704 | Fewer than three consecutive clean cycles or missing workload/drill evidence | Corresponding switch remains disabled |
 | TC-AMI-705 | Housekeeper first full weekly cycle | `dryRun=true`; candidate logs are reviewed before live mode |

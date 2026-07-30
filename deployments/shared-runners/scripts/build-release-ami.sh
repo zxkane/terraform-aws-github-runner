@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly REPO_ROOT
+# shellcheck disable=SC1091 # Resolved relative to this script at runtime.
+source "$SCRIPT_DIR/ami-log-sanitizer.sh"
 
 : "${ARCHITECTURE:?ARCHITECTURE must be amd64 or arm64}"
 : "${AWS_REGION:?AWS_REGION must be set}"
@@ -69,10 +71,7 @@ export PKR_VAR_github_api_token="$GITHUB_TOKEN"
   packer validate "${packer_args[@]}" .
   packer build "${packer_args[@]}" .
 ) >"$build_log" 2>&1 || {
-  sed -E \
-    -e 's/ami-[0-9a-f]{17}/<masked-ami>/g' \
-    -e 's/[0-9]{12}/<masked-account>/g' \
-    "$build_log" >&2
+  sanitize_ami_build_log "$build_log" >&2
   exit 1
 }
 
@@ -84,10 +83,7 @@ ami_id="$(jq -er '.builds[-1].artifact_id | split(":")[-1]' "$manifest")"
 }
 
 echo "::add-mask::$ami_id"
-sed -E \
-  -e 's/ami-[0-9a-f]{17}/<masked-ami>/g' \
-  -e 's/[0-9]{12}/<masked-account>/g' \
-  "$build_log"
+sanitize_ami_build_log "$build_log"
 
 printf '%s\n' "$ami_id" >"$AMI_ID_OUTPUT_FILE"
 chmod 0600 "$AMI_ID_OUTPUT_FILE"

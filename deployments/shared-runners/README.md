@@ -74,7 +74,7 @@
 
 | Name | Description |
 |------|-------------|
-| <a name="output_ami_release_configuration"></a> [ami\_release\_configuration](#output\_ami\_release\_configuration) | Values to configure as GitHub Actions repository variables after apply |
+| <a name="output_ami_release_configuration"></a> [ami\_release\_configuration](#output\_ami\_release\_configuration) | Values to configure as GitHub Actions repository secrets after apply |
 | <a name="output_runners_label_amd64"></a> [runners\_label\_amd64](#output\_runners\_label\_amd64) | GitHub Actions label set for amd64 self-hosted jobs |
 | <a name="output_runners_label_arm64"></a> [runners\_label\_arm64](#output\_runners\_label\_arm64) | GitHub Actions label set for arm64 self-hosted jobs |
 | <a name="output_webhook_endpoint"></a> [webhook\_endpoint](#output\_webhook\_endpoint) | API Gateway webhook URL — configure this in your GitHub App settings |

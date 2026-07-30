@@ -67,7 +67,7 @@ terraform output -raw webhook_secret  # → set as Webhook secret
 
 ## Step 6: Configure AMI Release Workflows
 
-After the first Terraform apply, configure the workflow repository variables
+After the first Terraform apply, configure the workflow repository secrets
 from the `ami_release_configuration` output. These are environment-specific
 values and must not be committed:
 
@@ -76,24 +76,42 @@ config="$(terraform output -json ami_release_configuration)"
 repository="<owner>/<repo>"
 export AMI_SOURCE_OWNER_ID="<aws-account-id>" # Canonical's published account ID.
 
-gh variable set AMI_BUILD_ROLE_ARN --repo "$repository" \
+gh secret set AMI_BUILD_ROLE_ARN --repo "$repository" \
   --body "$(jq -r '.build_role_arn' <<<"$config")"
-gh variable set AMI_PROMOTION_ROLE_AMD64_ARN --repo "$repository" \
+gh secret set AMI_PROMOTION_ROLE_AMD64_ARN --repo "$repository" \
   --body "$(jq -r '.promotion_role_arns.amd64' <<<"$config")"
-gh variable set AMI_PROMOTION_ROLE_ARM64_ARN --repo "$repository" \
+gh secret set AMI_PROMOTION_ROLE_ARM64_ARN --repo "$repository" \
   --body "$(jq -r '.promotion_role_arns.arm64' <<<"$config")"
-gh variable set AMI_BUILDER_INSTANCE_PROFILE --repo "$repository" \
+gh secret set AMI_BUILDER_INSTANCE_PROFILE --repo "$repository" \
   --body "$(jq -r '.builder_instance_profile_name' <<<"$config")"
-gh variable set AMI_VALIDATOR_INSTANCE_PROFILE --repo "$repository" \
+gh secret set AMI_VALIDATOR_INSTANCE_PROFILE --repo "$repository" \
   --body "$(jq -r '.validator_instance_profile_name' <<<"$config")"
-gh variable set AMI_BUILDER_SECURITY_GROUP_ID --repo "$repository" \
+gh secret set AMI_BUILDER_SECURITY_GROUP_ID --repo "$repository" \
   --body "$(jq -r '.builder_security_group_id' <<<"$config")"
-gh variable set AMI_VALIDATOR_SECURITY_GROUP_ID --repo "$repository" \
+gh secret set AMI_VALIDATOR_SECURITY_GROUP_ID --repo "$repository" \
   --body "$(jq -r '.validator_security_group_id' <<<"$config")"
-gh variable set AMI_SUBNET_ID --repo "$repository" \
+gh secret set AMI_SUBNET_ID --repo "$repository" \
   --body "$(jq -r '.subnet_id' <<<"$config")"
-gh variable set AMI_SOURCE_OWNER_ID --repo "$repository" \
+gh secret set AMI_SOURCE_OWNER_ID --repo "$repository" \
   --body "$AMI_SOURCE_OWNER_ID"
+
+# Remove legacy plaintext variables after their secret replacements exist.
+legacy_variables="$(gh variable list --repo "$repository" --json name --jq '.[].name')"
+for name in \
+  AMI_BUILD_ROLE_ARN \
+  AMI_PROMOTION_ROLE_AMD64_ARN \
+  AMI_PROMOTION_ROLE_ARM64_ARN \
+  AMI_BUILDER_INSTANCE_PROFILE \
+  AMI_VALIDATOR_INSTANCE_PROFILE \
+  AMI_BUILDER_SECURITY_GROUP_ID \
+  AMI_VALIDATOR_SECURITY_GROUP_ID \
+  AMI_SUBNET_ID \
+  AMI_SOURCE_OWNER_ID; do
+  if grep -Fxq "$name" <<<"$legacy_variables"; then
+    gh variable delete "$name" --repo "$repository"
+  fi
+done
+
 gh variable set AMI_AUTO_PROMOTE_AMD64 --repo "$repository" --body false
 gh variable set AMI_AUTO_PROMOTE_ARM64 --repo "$repository" --body false
 ```
@@ -101,7 +119,10 @@ gh variable set AMI_AUTO_PROMOTE_ARM64 --repo "$repository" --body false
 Create environments `runner-ami-production-amd64` and
 `runner-ami-production-arm64`. Restrict both to the default branch and require
 reviewers during the initial rollout. The IAM roles trust these exact
-environment subjects.
+environment subjects. Before the first promotion or rollback, verify both
+environment settings in the repository and confirm that each has at least one
+required reviewer. A workflow reference can create an environment without the
+intended protection rules, so the environment name alone is not sufficient.
 
 ### Build triggers
 
@@ -110,6 +131,9 @@ environment subjects.
 - Schedule: every Monday at `02:37 UTC` (`37 2 * * 1`).
 - Scheduled runs build amd64 and arm64 independently.
 - Manual dispatch accepts `all`, `amd64`, or `arm64`.
+- Build concurrency is per architecture, with at most one running and one
+  pending build in each group. A newer duplicate dispatch can replace the
+  pending build; an amd64 build never blocks an arm64 build.
 - A failure in one architecture does not cancel the other.
 
 Manual examples:
