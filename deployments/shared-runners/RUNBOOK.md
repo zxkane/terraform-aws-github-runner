@@ -112,17 +112,23 @@ for name in \
   fi
 done
 
-gh variable set AMI_AUTO_PROMOTE_AMD64 --repo "$repository" --body false
-gh variable set AMI_AUTO_PROMOTE_ARM64 --repo "$repository" --body false
 ```
 
 Create environments `runner-ami-production-amd64` and
-`runner-ami-production-arm64`. Restrict both to the default branch and require
-reviewers during the initial rollout. The IAM roles trust these exact
-environment subjects. Before the first promotion or rollback, verify both
-environment settings in the repository and confirm that each has at least one
-required reviewer. A workflow reference can create an environment without the
-intended protection rules, so the environment name alone is not sufficient.
+`runner-ami-production-arm64`. Restrict both to the default branch without
+required reviewers or a wait timer. The IAM roles trust these exact environment
+subjects; the environments provide architecture-specific OIDC boundaries, not
+human release approval. Before the first promotion or rollback, verify both
+environment settings. A workflow reference can create an environment without
+the intended branch policy, so the environment name alone is not sufficient.
+
+After both environments are configured and verified, enable automatic
+promotion:
+
+```bash
+gh variable set AMI_AUTO_PROMOTE_AMD64 --repo "$repository" --body true
+gh variable set AMI_AUTO_PROMOTE_ARM64 --repo "$repository" --body true
+```
 
 ### Build triggers
 
@@ -152,8 +158,10 @@ validates the toolchain before the AMI receives
 
 ### Promotion and rollback
 
-Automatic promotion is disabled independently for both architectures until
-the rollout gates below are complete. Promote a passed build by its exact
+After a build and final-image validation succeed, the matching architecture is
+promoted automatically when its `AMI_AUTO_PROMOTE_*` variable is exactly
+`true`. Set one variable to `false` to pause that architecture while continuing
+to build and validate. A passed build can also be promoted manually by its exact
 GitHub run ID and attempt:
 
 ```bash
@@ -179,21 +187,20 @@ asynchronous. If any channel is unreadable or contains a value outside the
 workflow's expected transition, the workflow stops without overwriting that
 external state.
 
-### Initial rollout gates
+### Initial rollout
 
 1. Confirm the migration plan contains exact moves for both active parameters,
    creates both previous and both recovery parameters with matching values, and
    has no deletes.
-2. Run one manual build for both architectures with both auto-promotion
-   variables `false`.
-3. Manually promote one architecture and monitor real jobs before promoting
-   the other.
-4. Record three consecutive successful weekly builds for each architecture.
-5. Run representative CI workloads and a rollback drill.
-6. Set only that architecture's `AMI_AUTO_PROMOTE_*` variable to `true`, remove
-   required reviewers from the matching environment, and retain its
-   default-branch restriction. To disable it later, set the variable `false`
-   before restoring required reviewers.
+2. Confirm both production environments retain the default-branch restriction,
+   have no required reviewers or wait timer, and both auto-promotion variables
+   are `true`.
+3. Run one manual build for both architectures. Each successful build and
+   validator promotes independently.
+4. Monitor new amd64 and arm64 runners with representative workloads.
+5. Verify the one-level rollback workflow is ready. To pause future automatic
+   promotion for one architecture, set its variable to `false`; no environment
+   reviewer change is needed.
 
 ### Monitoring a promoted AMI
 
