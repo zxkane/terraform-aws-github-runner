@@ -9,6 +9,17 @@ fail() {
   exit 1
 }
 
+has_match() {
+  local pattern="$1"
+  shift
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q -- "$pattern" "$@"
+  else
+    grep -Eq -- "$pattern" "$@"
+  fi
+}
+
 assert_file() {
   [[ -f "$REPO_ROOT/$1" ]] || fail "missing $1"
 }
@@ -17,7 +28,7 @@ assert_contains() {
   local file="$1"
   local pattern="$2"
   local message="$3"
-  rg -q -- "$pattern" "$REPO_ROOT/$file" || fail "$message"
+  has_match "$pattern" "$REPO_ROOT/$file" || fail "$message"
 }
 
 workflows=(
@@ -35,11 +46,11 @@ assert_file "deployments/shared-runners/scripts/cleanup-release-validators.test.
 
 for workflow in "${workflows[@]}"; do
   assert_file "$workflow"
-  if ! rg -q 'runs-on: ubuntu-24\.04' "$REPO_ROOT/$workflow" &&
-    ! rg -q 'uses: \./\.github/workflows/' "$REPO_ROOT/$workflow"; then
+  if ! has_match 'runs-on: ubuntu-24\.04' "$REPO_ROOT/$workflow" &&
+    ! has_match 'uses: \./\.github/workflows/' "$REPO_ROOT/$workflow"; then
     fail "$workflow must use GitHub-hosted ubuntu-24.04 or a checked local reusable workflow"
   fi
-  if rg -q 'runs-on:.*self-hosted' "$REPO_ROOT/$workflow"; then
+  if has_match 'runs-on:.*self-hosted' "$REPO_ROOT/$workflow"; then
     fail "$workflow must never use self-hosted runners"
   fi
 
@@ -82,7 +93,7 @@ for image_dir in images/ubuntu-resolute images/ubuntu-resolute-arm64; do
     "$image_dir must not assign a public IP"
   assert_contains "$template" 'encrypted[[:space:]]*=[[:space:]]*true' \
     "$image_dir must launch an encrypted root volume"
-  if rg -q 'encrypt_boot[[:space:]]*=' "$REPO_ROOT/$template"; then
+  if has_match 'encrypt_boot[[:space:]]*=' "$REPO_ROOT/$template"; then
     fail "$image_dir must not trigger Packer's redundant AMI copy-encryption path"
   fi
   assert_contains "$template" 'ghr:release_id' \
@@ -104,7 +115,7 @@ build_policy="$(
     '/^data "aws_iam_policy_document" "ami_build" {$/,/^resource "aws_iam_role_policy" "ami_build" {$/p' \
     "$REPO_ROOT/$terraform_file"
 )"
-if rg -q '"ec2:(DeregisterImage|DeleteSnapshot)"' <<<"$build_policy"; then
+if has_match '"ec2:(DeregisterImage|DeleteSnapshot)"' <<<"$build_policy"; then
   fail "build role must not delete AMIs or snapshots"
 fi
 assert_contains "$terraform_file" 'module\.runners\.module\.runners\["linux-amd64"\]\.aws_ssm_parameter\.runner_ami_id\[0\]' \
@@ -119,7 +130,7 @@ assert_contains "$terraform_file" 'runner-ami-promotion-amd64' \
   "amd64 promotion role must be architecture scoped"
 assert_contains "$terraform_file" 'runner-ami-promotion-arm64' \
   "arm64 promotion role must be architecture scoped"
-if rg -q 'AmazonSSMManagedInstanceCore' "$REPO_ROOT/$terraform_file"; then
+if has_match 'AmazonSSMManagedInstanceCore' "$REPO_ROOT/$terraform_file"; then
   fail "validator role must not inherit Parameter Store read permissions"
 fi
 assert_contains "$terraform_file" 'ssmmessages:OpenControlChannel' \
