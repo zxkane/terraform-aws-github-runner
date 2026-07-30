@@ -210,6 +210,12 @@ build {
   sources = [
     "source.amazon-ebs.githubrunner"
   ]
+
+  provisioner "file" {
+    source      = "../google-chrome-ci"
+    destination = "/tmp/google-chrome-ci"
+  }
+
   provisioner "shell" {
     environment_vars = [
       "DEBIAN_FRONTEND=noninteractive"
@@ -239,6 +245,7 @@ build {
       "sudo curl -f https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip",
       "unzip awscliv2.zip",
       "sudo ./aws/install",
+      "sudo install -o root -g root -m 0755 /tmp/google-chrome-ci /usr/local/bin/google-chrome-ci",
     ], var.custom_shell_commands)
   }
 
@@ -261,7 +268,8 @@ build {
       "sudo chmod +x /tmp/install-runner.sh",
       "echo ubuntu | tee -a /tmp/install-user.txt",
       "sudo RUNNER_ARCHITECTURE=x64 RUNNER_TARBALL_URL=$RUNNER_TARBALL_URL /tmp/install-runner.sh",
-      "echo ImageOS=ubuntu26 | tee -a /opt/actions-runner/.env"
+      "echo ImageOS=ubuntu26 | tee -a /opt/actions-runner/.env",
+      "sudo sed -i '/^CHROME_PATH=/d' /opt/actions-runner/.env && echo CHROME_PATH=/usr/local/bin/google-chrome-ci | sudo tee -a /opt/actions-runner/.env",
     ]
   }
 
