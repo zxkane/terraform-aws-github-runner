@@ -419,8 +419,10 @@ Rollback is intentionally one level. It is not an active/previous swap.
   builder instances and can resume/terminate only sessions owned by the current
   role session.
 - A promotion role cannot build, register, deregister or copy images. Its
-  SSM parameter read and write permissions cover only the active, previous and
-  recovery parameters for its architecture.
+  `GetParameter`, `GetParameters` and `PutParameter` permissions cover only the
+  active, previous and recovery parameters for its architecture.
+  `GetParameters` is required when EC2 resolves the SSM AMI alias during Launch
+  Template verification.
 - Builder and validator instance profiles contain only managed-node messaging
   permissions. The validator profile cannot read Parameter Store or decrypt
   KMS data.
