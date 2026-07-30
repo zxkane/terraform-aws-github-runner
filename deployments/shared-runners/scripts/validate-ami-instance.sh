@@ -64,9 +64,18 @@ rm -f /tmp/playwright-validation.png
 
 if [[ "$expected_architecture" == "amd64" ]]; then
   command -v google-chrome >/dev/null || fail "Google Chrome is missing"
+  [[ -x /usr/local/bin/google-chrome-ci ]] || fail "Chrome CI wrapper is missing"
+  chrome_path_lines="$(grep '^CHROME_PATH=' /opt/actions-runner/.env || true)"
+  [[ "$chrome_path_lines" == "CHROME_PATH=/usr/local/bin/google-chrome-ci" ]] ||
+    fail "runner must select the Chrome CI wrapper with one exact CHROME_PATH"
+  chrome_profile="$(sudo -u ubuntu -H mktemp -d)" || fail "could not create Chrome profile"
+  trap 'rm -rf -- "$chrome_profile"' EXIT
   sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 30s \
-    google-chrome --headless --disable-gpu --dump-dom about:blank >/dev/null ||
+    /usr/local/bin/google-chrome-ci --headless --disable-gpu \
+    --user-data-dir="$chrome_profile" --dump-dom about:blank >/dev/null ||
     fail "Google Chrome did not start"
+  rm -rf -- "$chrome_profile"
+  trap - EXIT
 elif command -v google-chrome >/dev/null; then
   fail "Google Chrome must be absent on arm64"
 fi

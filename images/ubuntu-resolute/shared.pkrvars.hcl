@@ -59,7 +59,7 @@ custom_shell_commands = [
   "docker --version",
   "playwright --version",
   "google-chrome --version",
-  "timeout --signal=TERM --kill-after=5s 30s google-chrome --headless --disable-gpu --dump-dom about:blank > /dev/null",
+  "(chrome_profile=\"$(mktemp -d)\" && trap 'rm -rf \"$chrome_profile\"' EXIT && timeout --signal=TERM --kill-after=5s 30s /usr/local/bin/google-chrome-ci --headless --disable-gpu --user-data-dir=\"$chrome_profile\" --dump-dom about:blank > /dev/null)",
   "gh --version",
   "echo '=== Verification Complete ==='"
 ]

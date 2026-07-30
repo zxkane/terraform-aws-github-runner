@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/bin/dbus-run-session -- /usr/bin/google-chrome-stable "$@"
