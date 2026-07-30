@@ -79,7 +79,7 @@ jobs:
             "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" \
             --output "$packer_zip"
           printf '%s  %s\n' "$PACKER_LINUX_AMD64_SHA256" "$packer_zip" | sha256sum --check --status
-          sudo unzip -q "$packer_zip" -d /usr/local/bin
+          sudo unzip -oq "$packer_zip" -d /usr/local/bin
 
           session_manager_deb="$RUNNER_TEMP/session-manager-plugin.deb"
           curl --fail --silent --show-error --location --retry 3 \
