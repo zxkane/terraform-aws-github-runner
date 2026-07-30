@@ -66,6 +66,7 @@ jobs:
             deployments/shared-runners/scripts/validate-release-ami.sh \
             deployments/shared-runners/scripts/validate-release-ami.test.sh \
             images/chrome-install.test.sh \
+            images/google-chrome-ci \
             images/hooks/job-started.test.sh \
             images/is-ami-validation.sh \
             images/start-runner.sh \
