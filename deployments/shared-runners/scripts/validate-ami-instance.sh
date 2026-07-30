@@ -64,8 +64,8 @@ rm -f /tmp/playwright-validation.png
 
 if [[ "$expected_architecture" == "amd64" ]]; then
   command -v google-chrome >/dev/null || fail "Google Chrome is missing"
-  timeout --signal=TERM --kill-after=5s 30s \
-    google-chrome --headless --no-sandbox --disable-gpu --dump-dom about:blank >/dev/null ||
+  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 30s \
+    google-chrome --headless --disable-gpu --dump-dom about:blank >/dev/null ||
     fail "Google Chrome did not start"
 elif command -v google-chrome >/dev/null; then
   fail "Google Chrome must be absent on arm64"

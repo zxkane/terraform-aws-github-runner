@@ -35,7 +35,7 @@
 | TC-AMI-105 | Boot validator with `ghr:ami_validation=true` | Baked startup exits before normal runner template and before production SSM/token reads |
 | TC-AMI-106 | Inspect validator role | It has managed-node messaging but no `ssm:GetParameter*` or `kms:Decrypt` |
 | TC-AMI-107 | Validate common tools | Node 24, Bun, Docker, AWS CLI v2, GitHub CLI, runner and Playwright Chromium pass |
-| TC-AMI-108 | Validate amd64 browsers | Playwright Chromium and Google Chrome both start headlessly |
+| TC-AMI-108 | Validate amd64 browsers | Playwright Chromium and Google Chrome both start headlessly as the `ubuntu` runner user with browser sandboxing enabled |
 | TC-AMI-109 | Validate arm64 browsers | Playwright Chromium starts and Google Chrome executable is absent |
 | TC-AMI-110 | Validate apt state | No regular file remains below `/var/lib/apt/lists` |
 | TC-AMI-111 | Read IMDS without token | Request fails; token-authenticated architecture and instance data match expectations |
