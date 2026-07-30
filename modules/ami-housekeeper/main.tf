@@ -1,6 +1,7 @@
 locals {
-  lambda_zip = var.lambda_zip == null ? "${path.module}/../../lambdas/functions/ami-housekeeper/ami-housekeeper.zip" : var.lambda_zip
-  role_path  = var.role_path == null ? "/${var.prefix}/" : var.role_path
+  lambda_zip             = var.lambda_zip == null ? "${path.module}/../../lambdas/functions/ami-housekeeper/ami-housekeeper.zip" : var.lambda_zip
+  role_path              = var.role_path == null ? "/${var.prefix}/" : var.role_path
+  lambda_ami_policy_json = var.lambda_ami_policy_json == null ? templatefile("${path.module}/policies/lambda-ami-housekeeper.json", {}) : var.lambda_ami_policy_json
 }
 
 resource "aws_lambda_function" "ami_housekeeper" {
@@ -97,7 +98,7 @@ resource "aws_iam_role_policy" "ami_housekeeper" {
   name = "lambda-ami-policy"
   role = aws_iam_role.ami_housekeeper.id
 
-  policy = templatefile("${path.module}/policies/lambda-ami-housekeeper.json", {})
+  policy = local.lambda_ami_policy_json
 }
 
 resource "aws_cloudwatch_event_rule" "ami_housekeeper" {

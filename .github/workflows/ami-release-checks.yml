@@ -1,0 +1,157 @@
+name: Runner AMI release checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ami-*.yml"
+      - "deployments/shared-runners/**"
+      - "images/**"
+      - "lambdas/**"
+      - "modules/ami-housekeeper/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-ami-release-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-contracts:
+    name: Shell contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Test AMI release contracts
+        run: |
+          set -euo pipefail
+          bash deployments/shared-runners/scripts/ami-release-static.test.sh
+          bash deployments/shared-runners/scripts/ami-log-sanitizer.test.sh
+          bash deployments/shared-runners/scripts/ami-channel.test.sh
+          bash deployments/shared-runners/scripts/cleanup-release-builders.test.sh
+          bash deployments/shared-runners/scripts/cleanup-release-validators.test.sh
+          bash deployments/shared-runners/scripts/validate-release-ami.test.sh
+          bash images/chrome-install.test.sh
+          bash images/validation-mode.test.sh
+          bash images/hooks/job-started.test.sh
+
+      - name: ShellCheck AMI release scripts
+        run: |
+          shellcheck \
+            deployments/shared-runners/scripts/02-build-ami.sh \
+            deployments/shared-runners/scripts/03-deploy.sh \
+            deployments/shared-runners/scripts/ami-log-sanitizer.sh \
+            deployments/shared-runners/scripts/ami-log-sanitizer.test.sh \
+            deployments/shared-runners/scripts/ami-channel.sh \
+            deployments/shared-runners/scripts/ami-channel.test.sh \
+            deployments/shared-runners/scripts/ami-release-static.test.sh \
+            deployments/shared-runners/scripts/aws-request-phase.sh \
+            deployments/shared-runners/scripts/build-release-ami.sh \
+            deployments/shared-runners/scripts/cleanup-release-builders.sh \
+            deployments/shared-runners/scripts/cleanup-release-builders.test.sh \
+            deployments/shared-runners/scripts/cleanup-release-validators.sh \
+            deployments/shared-runners/scripts/cleanup-release-validators.test.sh \
+            deployments/shared-runners/scripts/validate-ami-instance.sh \
+            deployments/shared-runners/scripts/validate-release-ami.sh \
+            deployments/shared-runners/scripts/validate-release-ami.test.sh \
+            images/chrome-install.test.sh \
+            images/hooks/job-started.test.sh \
+            images/is-ami-validation.sh \
+            images/start-runner.sh \
+            images/validation-mode.test.sh
+
+  housekeeper:
+    name: Housekeeper
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: lambdas
+        run: corepack yarn install --immutable
+
+      - name: Verify AMI housekeeper
+        working-directory: lambdas
+        run: |
+          set -euo pipefail
+          corepack yarn nx run @aws-github-runner/ami-housekeeper:format-check
+          corepack yarn nx run @aws-github-runner/ami-housekeeper:lint
+          corepack yarn nx run @aws-github-runner/ami-housekeeper:typecheck
+          corepack yarn nx run @aws-github-runner/ami-housekeeper:test
+          corepack yarn nx run @aws-github-runner/ami-housekeeper:dist
+          unzip -t functions/ami-housekeeper/ami-housekeeper.zip
+          unzip -p functions/ami-housekeeper/ami-housekeeper.zip index.js >"$RUNNER_TEMP/ami-housekeeper-index.js"
+          node --check "$RUNNER_TEMP/ami-housekeeper-index.js"
+
+  terraform:
+    name: Deployment Terraform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.14.6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Build housekeeper and create other validation artifacts
+        run: |
+          set -euo pipefail
+          (
+            cd lambdas
+            corepack yarn install --immutable
+            corepack yarn nx run @aws-github-runner/ami-housekeeper:dist
+          )
+          unzip -t lambdas/functions/ami-housekeeper/ami-housekeeper.zip
+          touch lambdas/functions/webhook/webhook.zip
+          touch lambdas/functions/control-plane/runners.zip
+          touch lambdas/functions/gh-agent-syncer/runner-binaries-syncer.zip
+          touch lambdas/functions/termination-watcher/termination-watcher.zip
+
+      - name: Validate deployment and housekeeper module
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive
+          terraform -chdir=deployments/shared-runners init -backend=false -input=false
+          terraform -chdir=deployments/shared-runners validate
+          terraform -chdir=modules/ami-housekeeper init -backend=false -input=false
+          terraform -chdir=modules/ami-housekeeper validate

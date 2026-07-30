@@ -11,8 +11,9 @@ export async function handler(event: unknown, context: Context): Promise<void> {
   try {
     const config = JSON.parse(process.env.AMI_CLEANUP_OPTIONS);
     logger.debug('Clean-up options', { config });
-    await amiCleanup(config);
+    await amiCleanup(config, new Date(), () => context.getRemainingTimeInMillis());
   } catch (e) {
     logger.error(`${(e as Error).message}`, { error: e as Error });
+    throw e;
   }
 }

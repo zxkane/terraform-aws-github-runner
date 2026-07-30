@@ -24,8 +24,9 @@ custom_shell_commands = [
   "echo 'Bun version:' && bun --version",
 
   # ── Playwright Chromium (system deps + browser binary) ──
-  "sudo npx playwright install-deps chromium",
-  "npx playwright install chromium",
+  "sudo npm install -g playwright",
+  "sudo playwright install-deps chromium",
+  "playwright install chromium",
   "echo 'Playwright browsers installed'",
 
   # ── GitHub CLI (official apt repo, arch-agnostic) ──
@@ -45,7 +46,7 @@ custom_shell_commands = [
   "bun --version",
   "aws --version",
   "docker --version",
-  "npx playwright --version",
+  "playwright --version",
   "gh --version",
   "echo '=== Verification Complete ==='"
 ]

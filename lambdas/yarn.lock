@@ -106,6 +106,7 @@ __metadata:
     "@aws-sdk/client-ec2": "npm:^3.1009.0"
     "@aws-sdk/client-ssm": "npm:^3.1009.0"
     "@aws-sdk/types": "npm:^3.973.6"
+    "@smithy/node-http-handler": "npm:^4.5.0"
     "@types/aws-lambda": "npm:^8.10.159"
     "@vercel/ncc": "npm:^0.38.4"
     aws-sdk-client-mock: "npm:^4.1.0"

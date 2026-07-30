@@ -102,8 +102,7 @@ module "runners" {
         instance_types        = ["c8g.2xlarge"]
         runners_maximum_count = 10
         ami = {
-          filter = { name = ["github-runner-ubuntu-resolute-arm64-*"], state = ["available"] }
-          owners = [data.aws_caller_identity.current.account_id]
+          id_ssm_parameter_arn = aws_ssm_parameter.runner_ami_active["arm64"].arn
         }
       })
     }
@@ -120,8 +119,7 @@ module "runners" {
         instance_types        = ["c7a.4xlarge", "c7i.4xlarge", "m7a.4xlarge"]
         runners_maximum_count = 5
         ami = {
-          filter = { name = ["github-runner-ubuntu-resolute-amd64-*"], state = ["available"] }
-          owners = [data.aws_caller_identity.current.account_id]
+          id_ssm_parameter_arn = aws_ssm_parameter.runner_ami_active["amd64"].arn
         }
       })
     }

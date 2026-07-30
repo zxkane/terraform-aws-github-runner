@@ -12,6 +12,35 @@ variable "runner_version" {
   default     = null
 }
 
+variable "github_api_token" {
+  description = "Optional GitHub token used by the runner release data source"
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "release_id" {
+  description = "GitHub Actions run_id.run_attempt identity for an automated release"
+  type        = string
+  default     = null
+}
+
+variable "source_revision" {
+  description = "Git commit SHA that produced an automated release"
+  type        = string
+  default     = null
+}
+
+variable "source_ami_owner" {
+  description = "AWS account ID for the trusted Canonical source AMIs"
+  type        = string
+
+  validation {
+    condition     = var.source_ami_owner == "self" || can(regex("^[0-9]{12}$", var.source_ami_owner))
+    error_message = "Source_ami_owner must be a 12-digit AWS account ID or self for validation."
+  }
+}
+
 variable "region" {
   description = "The region to build the image in"
   type        = string
@@ -30,12 +59,6 @@ variable "subnet_id" {
   default     = null
 }
 
-variable "associate_public_ip_address" {
-  description = "If using a non-default VPC, there is no public IP address assigned to the EC2 instance. If you specified a public subnet, you probably want to set this to true. Otherwise the EC2 instance won't have access to the internet"
-  type        = string
-  default     = null
-}
-
 variable "instance_type" {
   description = "The instance type Packer will use for the builder"
   type        = string
@@ -43,9 +66,9 @@ variable "instance_type" {
 }
 
 variable "iam_instance_profile" {
-  description = "IAM instance profile Packer will use for the builder. An empty string (default) means no profile will be assigned."
+  description = "IAM instance profile Packer will use for Session Manager connectivity"
   type        = string
-  default     = ""
+  default     = "runner-ami-builder"
 }
 
 variable "root_volume_size_gb" {
@@ -83,34 +106,44 @@ variable "custom_shell_commands" {
   default     = []
 }
 
-variable "temporary_security_group_source_public_ip" {
-  description = "When enabled, use public IP of the host (obtained from https://checkip.amazonaws.com) as CIDR block to be authorized access to the instance, when packer is creating a temporary security group. Note: If you specify `security_group_id` then this input is ignored."
-  type        = bool
-  default     = false
-}
-
 data "http" github_runner_release_json {
   url = "https://api.github.com/repos/actions/runner/releases/latest"
-  request_headers = {
-    Accept = "application/vnd.github+json"
-    X-GitHub-Api-Version : "2022-11-28"
-  }
+  request_headers = merge(
+    {
+      Accept               = "application/vnd.github+json"
+      X-GitHub-Api-Version = "2022-11-28"
+    },
+    var.github_api_token == null ? {} : {
+      Authorization = "Bearer ${var.github_api_token}"
+    },
+  )
 }
 
 locals {
   runner_version = coalesce(var.runner_version, trimprefix(jsondecode(data.http.github_runner_release_json.body).tag_name, "v"))
+  release_tags = var.release_id != null && var.source_revision != null ? {
+    "ghr:managed"           = "runner-ami-release"
+    "ghr:release_id"        = var.release_id
+    "ghr:architecture"      = "arm64"
+    "ghr:ami_role"          = "builder"
+    "ghr:source_revision"   = var.source_revision
+    "ghr:validation_status" = "candidate"
+  } : {}
+  ami_suffix = var.release_id != null ? var.release_id : formatdate("YYYYMMDDhhmm", timestamp())
 }
 
 source "amazon-ebs" "githubrunner" {
-  ami_name                                  = "github-runner-ubuntu-resolute-arm64-${formatdate("YYYYMMDDhhmm", timestamp())}"
-  instance_type                             = var.instance_type
-  iam_instance_profile                      = var.iam_instance_profile
-  region                                    = var.region
-  security_group_id                         = var.security_group_id
-  subnet_id                                 = var.subnet_id
-  associate_public_ip_address               = var.associate_public_ip_address
-  temporary_security_group_source_public_ip = var.temporary_security_group_source_public_ip
-  imds_support                              = "v2.0"
+  ami_name                    = "github-runner-ubuntu-resolute-arm64-${local.ami_suffix}"
+  communicator                = "ssh"
+  instance_type               = var.instance_type
+  iam_instance_profile        = var.iam_instance_profile
+  region                      = var.region
+  security_group_id           = var.security_group_id
+  subnet_id                   = var.subnet_id
+  associate_public_ip_address = false
+  temporary_key_pair_name     = "github-runner-ami-arm64-${local.ami_suffix}"
+  ssh_interface               = "session_manager"
+  imds_support                = "v2.0"
 
   # Packer's builder instance must also speak IMDSv2 — AWS accounts with
   # httpTokensEnforced=true reject any launch that allows IMDSv1. `imds_support`
@@ -129,12 +162,13 @@ source "amazon-ebs" "githubrunner" {
       virtualization-type = "hvm"
     }
     most_recent = true
-    owners      = ["099720109477"]
+    owners      = [var.source_ami_owner]
   }
   ssh_username = "ubuntu"
   tags = merge(
     var.global_tags,
     var.ami_tags,
+    local.release_tags,
     {
       OS_Version    = "ubuntu-resolute-pro"
       Release       = "Latest"
@@ -143,6 +177,23 @@ source "amazon-ebs" "githubrunner" {
   snapshot_tags = merge(
     var.global_tags,
     var.snapshot_tags,
+    local.release_tags,
+  )
+  run_tags = merge(
+    var.global_tags,
+    local.release_tags,
+    {
+      "ghr:managed"  = "runner-ami-release"
+      "ghr:ami_role" = "builder"
+    },
+  )
+  run_volume_tags = merge(
+    var.global_tags,
+    local.release_tags,
+    {
+      "ghr:managed"  = "runner-ami-release"
+      "ghr:ami_role" = "builder"
+    },
   )
 
   launch_block_device_mappings {
@@ -150,6 +201,7 @@ source "amazon-ebs" "githubrunner" {
     volume_size           = "${var.root_volume_size_gb}"
     volume_type           = "gp3"
     delete_on_termination = "${var.ebs_delete_on_termination}"
+    encrypted             = true
   }
 }
 
@@ -235,8 +287,14 @@ build {
     destination = "/tmp/start-runner.sh"
   }
 
+  provisioner "file" {
+    source      = "../is-ami-validation.sh"
+    destination = "/tmp/is-ami-validation.sh"
+  }
+
   provisioner "shell" {
     inline = [
+      "sudo install -m 0755 /tmp/is-ami-validation.sh /opt/actions-runner/bin/is-ami-validation.sh",
       "sudo mv /tmp/start-runner.sh /var/lib/cloud/scripts/per-boot/start-runner.sh",
       "sudo chmod +x /var/lib/cloud/scripts/per-boot/start-runner.sh",
     ]

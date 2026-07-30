@@ -1,0 +1,62 @@
+name: Runner AMI release
+
+on:
+  schedule:
+    - cron: "37 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architecture to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - amd64
+          - arm64
+
+permissions:
+  contents: read
+
+jobs:
+  amd64:
+    name: Build amd64
+    if: github.event_name == 'schedule' || inputs.architecture == 'all' || inputs.architecture == 'amd64'
+    permissions:
+      contents: read
+      actions: read # Required if the build calls promotion.
+      id-token: write # Required for AWS OIDC role assumption.
+    uses: ./.github/workflows/ami-build.yml
+    with:
+      architecture: amd64
+    secrets:
+      AMI_BUILD_ROLE_ARN: ${{ secrets.AMI_BUILD_ROLE_ARN }}
+      AMI_BUILDER_INSTANCE_PROFILE: ${{ secrets.AMI_BUILDER_INSTANCE_PROFILE }}
+      AMI_BUILDER_SECURITY_GROUP_ID: ${{ secrets.AMI_BUILDER_SECURITY_GROUP_ID }}
+      AMI_PROMOTION_ROLE_AMD64_ARN: ${{ secrets.AMI_PROMOTION_ROLE_AMD64_ARN }}
+      AMI_PROMOTION_ROLE_ARM64_ARN: ${{ secrets.AMI_PROMOTION_ROLE_ARM64_ARN }}
+      AMI_SOURCE_OWNER_ID: ${{ secrets.AMI_SOURCE_OWNER_ID }}
+      AMI_SUBNET_ID: ${{ secrets.AMI_SUBNET_ID }}
+      AMI_VALIDATOR_INSTANCE_PROFILE: ${{ secrets.AMI_VALIDATOR_INSTANCE_PROFILE }}
+      AMI_VALIDATOR_SECURITY_GROUP_ID: ${{ secrets.AMI_VALIDATOR_SECURITY_GROUP_ID }}
+
+  arm64:
+    name: Build arm64
+    if: github.event_name == 'schedule' || inputs.architecture == 'all' || inputs.architecture == 'arm64'
+    permissions:
+      contents: read
+      actions: read # Required if the build calls promotion.
+      id-token: write # Required for AWS OIDC role assumption.
+    uses: ./.github/workflows/ami-build.yml
+    with:
+      architecture: arm64
+    secrets:
+      AMI_BUILD_ROLE_ARN: ${{ secrets.AMI_BUILD_ROLE_ARN }}
+      AMI_BUILDER_INSTANCE_PROFILE: ${{ secrets.AMI_BUILDER_INSTANCE_PROFILE }}
+      AMI_BUILDER_SECURITY_GROUP_ID: ${{ secrets.AMI_BUILDER_SECURITY_GROUP_ID }}
+      AMI_PROMOTION_ROLE_AMD64_ARN: ${{ secrets.AMI_PROMOTION_ROLE_AMD64_ARN }}
+      AMI_PROMOTION_ROLE_ARM64_ARN: ${{ secrets.AMI_PROMOTION_ROLE_ARM64_ARN }}
+      AMI_SOURCE_OWNER_ID: ${{ secrets.AMI_SOURCE_OWNER_ID }}
+      AMI_SUBNET_ID: ${{ secrets.AMI_SUBNET_ID }}
+      AMI_VALIDATOR_INSTANCE_PROFILE: ${{ secrets.AMI_VALIDATOR_INSTANCE_PROFILE }}
+      AMI_VALIDATOR_SECURITY_GROUP_ID: ${{ secrets.AMI_VALIDATOR_SECURITY_GROUP_ID }}
