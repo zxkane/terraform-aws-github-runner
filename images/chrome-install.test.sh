@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VALIDATOR="$SCRIPT_DIR/../deployments/shared-runners/scripts/validate-ami-instance.sh"
 
 commands_json() {
   local image_dir="$1"
@@ -86,6 +87,21 @@ fi
 
 if jq -e 'any(.[]; contains("google-chrome"))' <<<"$arm64_commands" >/dev/null; then
   echo "FAIL: arm64 must not install the amd64-only Google Chrome package" >&2
+  exit 1
+fi
+
+validator_chrome_command="$(
+  sed -n \
+    '/^  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 30s \\$/,+1p' \
+    "$VALIDATOR"
+)"
+expected_validator_chrome_command=$'  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 30s \\\n    google-chrome --headless --disable-gpu --dump-dom about:blank >/dev/null ||'
+if [[ "$validator_chrome_command" != "$expected_validator_chrome_command" ]]; then
+  echo "FAIL: amd64 validator must launch Chrome as the runner user with its sandbox" >&2
+  exit 1
+fi
+if grep -q -- '--no-sandbox' <<<"$validator_chrome_command"; then
+  echo "FAIL: amd64 validator must exercise the Chrome sandbox used by runner jobs" >&2
   exit 1
 fi
 
