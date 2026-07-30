@@ -157,8 +157,8 @@ jq -e \
     and .[0].State == "available"
     and .[0].Architecture == $architecture
     and .[0].ImdsSupport == "v2.0"
-    and ([.[0].BlockDeviceMappings[]?.Ebs] | length > 0)
-    and all(.[0].BlockDeviceMappings[]?.Ebs; .Encrypted == true)
+    and ([.[0].BlockDeviceMappings[]? | .Ebs? | select(. != null)] | length > 0)
+    and all(.[0].BlockDeviceMappings[]? | .Ebs? | select(. != null); .Encrypted == true)
     and ([.[0].Tags[]? | select(.Key == "ghr:managed") | .Value] == ["runner-ami-release"])
     and ([.[0].Tags[]? | select(.Key == "ghr:release_id") | .Value] == [$release])
     and ([.[0].Tags[]? | select(.Key == "ghr:architecture") | .Value] == [$architecture | if . == "x86_64" then "amd64" else . end])

@@ -284,7 +284,30 @@ assert_contains "$terraform_file" 'network-interface/\*' \
   "Packer must be allowed to tag launch-created network interfaces"
 # shellcheck disable=SC2016 # Match the literal IAM policy variable.
 assert_contains "$terraform_file" 'session/\$\$\{aws:userid\}-\*' \
-  "build role must manage only sessions created by its own role session"
+  "build role must open data channels only for its own role session"
+terminate_own_sessions="$(
+  sed -n '/sid[[:space:]]*=[[:space:]]*"TerminateOwnSessions"/,/^  }$/p' \
+    "$REPO_ROOT/$terraform_file"
+)"
+has_match '^    actions[[:space:]]*=[[:space:]]*\["ssm:TerminateSession"\]$' \
+  <<<"$terminate_own_sessions" ||
+  fail "federated build role must only terminate sessions"
+has_match '^    resources[[:space:]]*=[[:space:]]*\["\*"\]$' \
+  <<<"$terminate_own_sessions" ||
+  fail "TerminateSession must use the AWS-documented wildcard resource"
+has_match '^      test[[:space:]]*=[[:space:]]*"StringEquals"$' \
+  <<<"$terminate_own_sessions" ||
+  fail "TerminateSession must use exact session ownership matching"
+has_match '^      variable[[:space:]]*=[[:space:]]*"ssm:resourceTag/aws:ssmmessages:session-id"$' \
+  <<<"$terminate_own_sessions" ||
+  fail "TerminateSession must match the AWS-supplied session ID resource tag"
+# shellcheck disable=SC2016 # Match the literal IAM policy variable.
+has_match '^      values[[:space:]]*=[[:space:]]*\["\$\$\{aws:userid\}"\]$' \
+  <<<"$terminate_own_sessions" ||
+  fail "TerminateSession must limit cleanup to the caller's sessions"
+if has_match 'ssm:ResumeSession' <<<"$terminate_own_sessions"; then
+  fail "build role must not resume Session Manager sessions"
+fi
 assert_contains "images/ubuntu-resolute/github_agent.ubuntu.pkr.hcl" '"ghr:ami_role"[[:space:]]*=[[:space:]]*"builder"' \
   "amd64 Packer builder instances must carry the IAM scope tag"
 assert_contains "images/ubuntu-resolute-arm64/github_agent.ubuntu.pkr.hcl" '"ghr:ami_role"[[:space:]]*=[[:space:]]*"builder"' \
