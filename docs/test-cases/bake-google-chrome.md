@@ -13,4 +13,4 @@
 | TC-CHROME-007 | Complete a real amd64 build | Packer reports the Chrome version and creates an available AMI. |
 | TC-CHROME-008 | Launch Chrome from a non-login runner session | The amd64 AMI provides an executable wrapper that starts Chrome Stable inside `dbus-run-session`. |
 | TC-CHROME-009 | Configure `chrome-launcher` discovery | The amd64 runner environment contains exactly one `CHROME_PATH` entry selecting `/usr/local/bin/google-chrome-ci`; arm64 does not set it. |
-| TC-CHROME-010 | Smoke-test the installed wrapper | Packer and the release validator launch the wrapper as the unprivileged runner user with a temporary profile and browser sandboxing enabled. |
+| TC-CHROME-010 | Smoke-test the installed wrapper | Packer and the release validator launch the wrapper as the unprivileged runner user with a temporary profile and browser sandboxing enabled; each cold-start smoke has a 90-second hard timeout. |
