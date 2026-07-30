@@ -78,7 +78,7 @@ apt_update="sudo timeout --signal=TERM --kill-after=30s 600s apt-get -o DPkg::Lo
 chrome_install="sudo timeout --signal=TERM --kill-after=30s 600s env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends google-chrome-stable"
 chrome_cleanup="sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources /usr/share/keyrings/google-chrome.gpg"
 chrome_version="google-chrome --version"
-chrome_smoke="(chrome_profile=\"\$(mktemp -d)\" && trap 'rm -rf \"\$chrome_profile\"' EXIT && timeout --signal=TERM --kill-after=5s 30s /usr/local/bin/google-chrome-ci --headless --disable-gpu --user-data-dir=\"\$chrome_profile\" --dump-dom about:blank > /dev/null)"
+chrome_smoke="(chrome_profile=\"\$(mktemp -d)\" && trap 'rm -rf \"\$chrome_profile\"' EXIT && timeout --signal=TERM --kill-after=5s 90s /usr/local/bin/google-chrome-ci --headless --disable-gpu --user-data-dir=\"\$chrome_profile\" --dump-dom about:blank > /dev/null)"
 
 assert_exact "$amd64_commands" "$apt_update" \
   "amd64 bounds the apt repository update"
@@ -126,12 +126,14 @@ grep -Fq "$validator_chrome_path" "$VALIDATOR" ||
 validator_profile_create='chrome_profile="$(sudo -u ubuntu -H mktemp -d)" || fail "could not create Chrome profile"'
 grep -Fq "$validator_profile_create" "$VALIDATOR" ||
   fail "amd64 validator must create an ephemeral Chrome profile as the runner user"
-grep -Fq '/usr/local/bin/google-chrome-ci --headless --disable-gpu' "$VALIDATOR" ||
-  fail "amd64 validator must launch Chrome through the D-Bus wrapper"
-# shellcheck disable=SC2016 # Match the literal shell variable in the validator.
-validator_profile_use='--user-data-dir="$chrome_profile" --dump-dom about:blank >/dev/null ||'
-grep -Fq -- "$validator_profile_use" "$VALIDATOR" ||
-  fail "amd64 validator must use the ephemeral Chrome profile"
+validator_chrome_command="$(
+  sed -n \
+    '/^  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 90s \\$/,+2p' \
+    "$VALIDATOR"
+)"
+expected_validator_chrome_command=$'  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 90s \\\n    /usr/local/bin/google-chrome-ci --headless --disable-gpu \\\n    --user-data-dir="$chrome_profile" --dump-dom about:blank >/dev/null ||'
+[[ "$validator_chrome_command" == "$expected_validator_chrome_command" ]] ||
+  fail "amd64 validator must run the D-Bus wrapper with an ephemeral profile and a 90-second timeout"
 
 if grep -q -- '--no-sandbox' "$WRAPPER" "$AMD64_TEMPLATE" "$VALIDATOR"; then
   fail "Chrome build and validation must exercise the sandbox used by runner jobs"

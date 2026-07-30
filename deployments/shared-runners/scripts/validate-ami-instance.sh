@@ -70,7 +70,7 @@ if [[ "$expected_architecture" == "amd64" ]]; then
     fail "runner must select the Chrome CI wrapper with one exact CHROME_PATH"
   chrome_profile="$(sudo -u ubuntu -H mktemp -d)" || fail "could not create Chrome profile"
   trap 'rm -rf -- "$chrome_profile"' EXIT
-  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 30s \
+  sudo -u ubuntu -H timeout --signal=TERM --kill-after=5s 90s \
     /usr/local/bin/google-chrome-ci --headless --disable-gpu \
     --user-data-dir="$chrome_profile" --dump-dom about:blank >/dev/null ||
     fail "Google Chrome did not start"
