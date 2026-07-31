@@ -25,7 +25,7 @@ support window on a fresh LTS) the user opted into.
 ## Pre-flight facts (verified 2026-06-18, us-east-1)
 
 26.04 LTS "Resolute Raccoon" is GA. Canonical's pro-server AMIs exist for both
-architectures owned by `099720109477`:
+architectures owned by `<aws-account-id>`:
 
 | Arch  | Base AMI name pattern | Verified image (newest) |
 |-------|-----------------------|-------------------------|
