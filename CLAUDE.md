@@ -272,10 +272,28 @@ not an operator-selectable release. The release workflows own value changes:
   writes through read-back.
 - Auto-promotion defaults off independently for amd64 and arm64.
 
-The housekeeper runs weekly in dry-run mode initially. After a reviewed full
-cycle, `ami_housekeeper_dry_run=false` enables deletion of unreferenced managed
-AMIs strictly older than seven days. Active, previous, recovery and resolved
-Launch Template images remain protected.
+The housekeeper deletes unreferenced managed AMIs strictly older than seven days
+every Monday at `08:37 UTC`. Active, previous, recovery and resolved Launch
+Template images stay protected. The dry-run gate was reviewed and cleared on
+2026-08-27, and `ami_housekeeper_dry_run` now **defaults to `false`** in
+`deployments/shared-runners/variables.tf`.
+
+**The default has to carry that decision, not a `-var` on the command line.**
+`scripts/03-deploy.sh` does not pass `ami_housekeeper_dry_run`, so a `true`
+default would silently return the housekeeper to dry-run on the next routine
+deploy. To pause cleanup, edit the default.
+
+**Break-glass AMIs are outside the housekeeper's reach.** It filters on
+`tag:ghr:managed = runner-ami-release`, and its IAM policy conditions
+`ec2:DeregisterImage` / `ec2:DeleteSnapshot` on that same tag. Images built by
+`scripts/02-build-ami.sh` (name form `…-YYYYMMDDHHMM` instead of
+`…-<run-id>.<attempt>`) carry no such tag, so they accumulate until an operator
+removes them by hand. Five of them were purged on 2026-08-27. If you use the
+break-glass path, clean up after it.
+
+`ec2:DeregisterImage` is eventually consistent: `describe-images` can still
+resolve a just-deregistered AMI. Poll until it stops resolving before deleting
+its snapshot, otherwise a registered AMI can end up with no backing snapshot.
 
 See `deployments/shared-runners/RUNBOOK.md` for GitHub variable setup,
 promotion, rollback, monitoring and cleanup gates.

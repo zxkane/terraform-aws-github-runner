@@ -72,7 +72,9 @@ resource "aws_lambda_function" "webhook_authorizer" {
 
   environment {
     variables = {
-      LOG_LEVEL               = "info"
+      # Powertools v2 matches LOG_LEVEL against uppercase keys only and falls
+      # back to INFO on anything else, so the value has to be uppercase.
+      LOG_LEVEL               = "INFO"
       POWERTOOLS_SERVICE_NAME = local.webhook_authorizer_name
     }
   }

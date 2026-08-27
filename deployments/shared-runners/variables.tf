@@ -36,10 +36,14 @@ variable "ami_release_default_branch" {
   default     = "feat/multi-runners"
 }
 
+# Deletion is enabled by default on purpose. The default has to carry the
+# decision, not a -var on the command line: scripts/03-deploy.sh does not pass
+# this variable, so a `true` default would silently return the housekeeper to
+# dry-run on the next routine deploy. Set it to `true` here to pause cleanup.
 variable "ami_housekeeper_dry_run" {
-  description = "Report release AMIs older than seven days without deleting them"
+  description = "Report release AMIs older than seven days instead of deleting them"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "tf_state_bucket" {

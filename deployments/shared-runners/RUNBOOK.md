@@ -277,12 +277,40 @@ The AMI housekeeper protects all six active/previous/recovery channels and both
 resolved default Launch Templates. It considers only release-managed,
 unreferenced AMIs strictly older than 168 hours.
 
-Keep `ami_housekeeper_dry_run=true` for at least one full weekly cycle. Review
-the logged candidate set, then apply:
+Deletion is **enabled** — `ami_housekeeper_dry_run` defaults to `false` in
+`variables.tf`. The dry-run gate was reviewed and cleared on 2026-08-27: the
+candidate set matched an independent enumeration of unreferenced release AMIs
+exactly, with no protected channel among them.
+
+The default carries that decision rather than a `-var`, because `03-deploy.sh`
+does not pass this variable and a `true` default would silently revert cleanup
+to dry-run on the next routine deploy. To pause cleanup, set the default to
+`true` and apply.
+
+Review the candidate set at any time without waiting for the schedule — flip the
+default to `true`, apply, then invoke:
 
 ```bash
-terraform plan -var="ami_housekeeper_dry_run=false" ...
-terraform apply tfplan
+aws lambda invoke --region us-east-1 --function-name gh-runner-ami-housekeeper \
+  --cli-binary-format raw-in-base64-out --payload '{}' /tmp/hk.json
+aws logs tail /aws/lambda/gh-runner-ami-housekeeper --since 5m
+```
+
+Dry-run logs `would delete …`; enabled logs `deleting ami …` followed by
+`deleting snapshot …`.
+
+**Break-glass AMIs are invisible to the housekeeper.** It filters on
+`tag:ghr:managed = runner-ami-release` and its IAM policy conditions
+`ec2:DeregisterImage` / `ec2:DeleteSnapshot` on the same tag, so images from
+`scripts/02-build-ami.sh` (named `…-YYYYMMDDHHMM`) are never cleaned. Remove them
+by hand, and poll for deregistration before deleting the snapshot —
+`ec2:DeregisterImage` is eventually consistent, so a single `describe-images`
+check right after it can still resolve the AMI:
+
+```bash
+aws ec2 deregister-image --region us-east-1 --image-id "$ami"
+until ! aws ec2 describe-images --region us-east-1 --image-ids "$ami" >/dev/null 2>&1; do sleep 4; done
+aws ec2 delete-snapshot --region us-east-1 --snapshot-id "$snap"
 ```
 
 Snapshot deletion is explicit and awaited. Shared/in-use snapshots are
