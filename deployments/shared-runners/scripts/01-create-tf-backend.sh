@@ -5,7 +5,7 @@ set -euo pipefail
 REGION="us-east-1"
 BUCKET="${TF_STATE_BUCKET:?Set TF_STATE_BUCKET env var}"
 # DynamoDB lock table is optional. The default deployment uses pure S3 with
-# no concurrency protection (see CLAUDE.md "State Locking 现状"). Set
+# no concurrency protection (see AGENTS.md "State Locking 现状"). Set
 # TF_STATE_LOCK_TABLE only if you actually want DynamoDB-based locking.
 TABLE="${TF_STATE_LOCK_TABLE:-}"
 

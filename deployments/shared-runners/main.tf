@@ -4,7 +4,7 @@ locals {
 
   # Tags applied to every runner EC2 instance. Intentionally project-agnostic —
   # this fleet is shared across multiple projects, and per-project usage is tracked
-  # via CloudWatch Logs Insights against the webhook lambda log (see CLAUDE.md
+  # via CloudWatch Logs Insights against the webhook lambda log (see AGENTS.md
   # "按项目追踪 runner 用量"), not EC2 tags. A single runner instance handles jobs
   # from many repos in its lifetime, so a Project tag here would be misleading.
   runner_ec2_tags = {
@@ -80,7 +80,7 @@ module "runners" {
   #   RetryJob                    (dimensions: Environment, RetryCount)
   #   SpotInterruption*           (only when instance_termination_watcher is on)
   # None of these carry a repository dimension. For per-repo usage, query the
-  # webhook lambda log via CloudWatch Logs Insights — see CLAUDE.md.
+  # webhook lambda log via CloudWatch Logs Insights — see AGENTS.md.
   metrics = {
     enable = true
     metric = {

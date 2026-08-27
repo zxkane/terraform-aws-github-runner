@@ -32,7 +32,7 @@ echo "Building Lambda artifacts..."
   corepack yarn dist
 )
 
-# State backend uses S3 only — no DynamoDB locking. See CLAUDE.md
+# State backend uses S3 only — no DynamoDB locking. See AGENTS.md
 # "State Locking 现状" for why and the upgrade path.
 echo "Initializing Terraform..."
 terraform init \
