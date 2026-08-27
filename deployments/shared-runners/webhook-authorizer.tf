@@ -11,7 +11,7 @@
 # the route resource, because the upstream webhook module ignores the route's
 # authorizer attributes on purpose — a Terraform-managed attachment would form a
 # dependency cycle, since the authorizer needs the API id and the route needs the
-# authorizer id. See CLAUDE.md "Webhook 网关授权" for the rollback path.
+# authorizer id. See AGENTS.md "Webhook 网关授权" for the rollback path.
 
 locals {
   webhook_authorizer_name = "${local.environment}-webhook-authorizer"

@@ -17,7 +17,7 @@ This fork adds an opinionated, production-ready deployment on top of the upstrea
 | 💸 **Smarter spot allocation** | Both fleets use `price-capacity-optimized` allocation (AWS-recommended) instead of the default `lowest-price`. The amd64 fleet uses a multi-pool list so spot capacity tightening on any single instance type doesn't stall jobs. |
 | 📊 **Per-project usage tracking** | Validated CloudWatch Logs Insights queries (count / conclusion / wall-clock duration / top jobs) against the webhook Lambda log. Documented honestly: the upstream Lambdas don't emit a `repository` metric dimension, so Metrics Explorer can't aggregate per repo — Logs Insights against the webhook log is the path that actually works. |
 | 🚀 **Migration tooling** | [`scripts/04-migrate-to-multi-runner.sh`](./deployments/shared-runners/scripts/04-migrate-to-multi-runner.sh) handles the destroy + recreate transition from a legacy single-fleet deployment of this stack and verifies the GitHub App webhook URL is auto-synced via JWT-signed `GET /app/hook/config`. |
-| 📒 **Operations handbook** | [`CLAUDE.md`](./CLAUDE.md) captures the operational gotchas that aren't obvious from the code (state-locking realities, instance-type fallback behavior, spot strategy rationale, per-project tracking, AMI build conventions). |
+| 📒 **Operations handbook** | [`AGENTS.md`](./AGENTS.md) captures the operational gotchas that aren't obvious from the code (state-locking realities, instance-type fallback behavior, spot strategy rationale, per-project tracking, AMI build conventions). |
 
 Quick start: [`deployments/shared-runners/RUNBOOK.md`](./deployments/shared-runners/RUNBOOK.md). Most of the upstream documentation below still applies — this fork sits on top of the unmodified upstream module code.
 

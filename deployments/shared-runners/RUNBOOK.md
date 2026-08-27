@@ -23,7 +23,7 @@ Auto-scaling persistent GitHub Actions runners on AWS EC2 Spot, managed by `modu
 ```bash
 export TF_STATE_BUCKET="<your-bucket-name>"
 # Optional: enables DynamoDB state locking. Default deployment uses pure
-# S3 with no concurrency protection — see CLAUDE.md "State Locking 现状".
+# S3 with no concurrency protection — see AGENTS.md "State Locking 现状".
 # export TF_STATE_LOCK_TABLE="<your-table-name>"
 ./scripts/01-create-tf-backend.sh
 ```
@@ -458,7 +458,7 @@ aws ec2 describe-instances --region us-east-1 \
 
 ## Migration from Legacy Single-Fleet Layout
 
-If migrating from the previous top-level `../../` module setup (single arm64 fleet only), see CLAUDE.md → "从单 runner（顶层 module）迁移到 multi-runner". Plan for a maintenance window — switching modules destroys and recreates SQS / Lambda / IAM resources, and the webhook URL changes.
+If migrating from the previous top-level `../../` module setup (single arm64 fleet only), see AGENTS.md → "从单 runner（顶层 module）迁移到 multi-runner". Plan for a maintenance window — switching modules destroys and recreates SQS / Lambda / IAM resources, and the webhook URL changes.
 
 ## Cost Notes
 
