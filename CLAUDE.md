@@ -93,6 +93,52 @@ The module switch forces Terraform to destroy and recreate every resource, becau
 
 Option A walkthrough is in `scripts/04-migrate-to-multi-runner.sh`. The script restores the legacy `main.tf` for the destroy phase, switches to the current `main.tf` for apply, and verifies via JWT-signed `GET /app/hook/config` that the GitHub App webhook URL synced correctly.
 
+## Changes to `feat/multi-runners` go through a pull request
+
+**Direct pushes to `feat/multi-runners` get almost no CI.** Every quality gate
+this fork inherits from upstream fires on `pull_request`, and the few that also
+fire on `push` are pinned to `main`:
+
+| Workflow | `push` trigger | `pull_request` trigger |
+|---|---|---|
+| `terraform.yml` (fmt, validate, tflint) | `main` only | yes, paths `**/*.tf`, `**/*.hcl` |
+| `lambda.yml` (build, lint, test) | none | yes, paths `lambdas/**` |
+| `ami-release-checks.yml` | none | yes, paths `deployments/shared-runners/**`, `images/**`, `lambdas/**`, … |
+| `zizmor.yml`, `packer-build.yml` | `main` only | yes |
+| `codeql.yml` | `main`, `develop`, `v1` | yes |
+| `ovs.yml` (OSV scanner), `semantic-check.yml` | none | yes, unfiltered |
+| `update-docs.yml` | any branch | n/a |
+
+`feat/multi-runners` is this fork's **default** branch but is not named `main`,
+so a direct push triggers only CodeQL and the docs regeneration. Everything
+else — Terraform validation, the Lambda test suite, the AMI release checks — is
+skipped silently.
+
+A ruleset (`feat/multi-runners requires a pull request`, repo ruleset id in the
+GitHub UI) enforces this. Notes on how it is configured and why:
+
+- **Rule: `pull_request`, 0 required approvals.** A single operator cannot
+  approve their own PR, so requiring an approval would deadlock every change.
+- **Bypass: repository admin, always.** This keeps break-glass pushes possible
+  and, more importantly, keeps the force-push that an upstream rebase needs
+  working. The ruleset is a speed bump, not a wall — the process is the control.
+- **No `non_fast_forward` rule** on purpose, for that same rebase force-push.
+- **No required status checks** on purpose. Most workflows are path-filtered, so
+  marking them required would block a docs-only PR forever on a check that never
+  runs. Read the checks on the PR instead; only `ovs.yml` and
+  `semantic-check.yml` run unconditionally.
+- **The docs bot has no bypass and cannot be given one.** `update-docs.yml`'s
+  `Generate TF docs (forks)` step pushes straight to the branch with
+  `GITHUB_TOKEN`, and GitHub rejects an `Integration` bypass actor on a
+  user-owned repository. This is fine in the normal flow: the bot regenerates
+  docs on the *feature* branch (unprotected), so by merge time there is no diff
+  left and its post-merge run pushes nothing. If docs drift does survive a
+  merge, the `Update docs` run fails loudly with a rejected push — harmless, but
+  fix the docs on a follow-up PR rather than pushing directly.
+
+Rebasing onto a new upstream release still force-pushes `feat/multi-runners`
+directly; that is expected and the admin bypass covers it.
+
 ## Webhook 网关授权
 
 The webhook route (`POST /webhook` on the HTTP API) carries a Lambda authorizer
