@@ -65,6 +65,50 @@ terraform output webhook_endpoint  # → set as Webhook URL
 terraform output -raw webhook_secret  # → set as Webhook secret
 ```
 
+## Step 5a: Verify the Webhook Route Authorizer
+
+`terraform apply` attaches the always-allow authorizer to the webhook route and
+already probes the live endpoint. Re-run the check any time — it is read-only:
+
+```bash
+config="$(terraform output -json webhook_authorizer)"
+./scripts/webhook-authorizer.sh verify \
+  --api-id "$(jq -r .api_id <<<"$config")" \
+  --authorizer-id "$(jq -r .authorizer_id <<<"$config")" \
+  --route-key "$(jq -r .route_key <<<"$config")" \
+  --region us-east-1 \
+  --endpoint "$(terraform output -raw webhook_endpoint)"
+```
+
+The probe sends an unsigned POST to the webhook endpoint. A `401` or `500`
+answer means the request reached the webhook lambda and was rejected on the HMAC
+check, which is the expected result. A `403` means API Gateway itself denied the
+request, so the authorizer would drop real GitHub deliveries.
+
+Roll back immediately if that happens — `detach` restores the route in place,
+with no route recreation and no lost deliveries:
+
+```bash
+./scripts/webhook-authorizer.sh detach \
+  --api-id "$(jq -r .api_id <<<"$config")" \
+  --route-key "$(jq -r .route_key <<<"$config")" \
+  --region us-east-1
+```
+
+Terraform will re-attach on the next apply. To keep it detached, remove
+`webhook-authorizer.tf` first.
+
+The authorizer logs one line per delivery to the log group in the
+`webhook_authorizer` output, recording the GitHub-origin signals it can see
+(signature header shape, event type, hook installation target, user agent,
+source IP). Use it to size the request population before considering a stricter
+gateway check:
+
+```sql
+fields @timestamp, github.event, github.signatureWellFormed, github.userAgentIsHookshot, github.sourceIp
+| stats count() by github.event, github.signatureWellFormed, github.userAgentIsHookshot
+```
+
 ## Step 6: Configure AMI Release Workflows
 
 After the first Terraform apply, configure the workflow repository secrets

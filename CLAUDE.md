@@ -93,6 +93,67 @@ The module switch forces Terraform to destroy and recreate every resource, becau
 
 Option A walkthrough is in `scripts/04-migrate-to-multi-runner.sh`. The script restores the legacy `main.tf` for the destroy phase, switches to the current `main.tf` for apply, and verifies via JWT-signed `GET /app/hook/config` that the GitHub App webhook URL synced correctly.
 
+## Webhook 网关授权
+
+The webhook route (`POST /webhook` on the HTTP API) carries a Lambda authorizer
+so the route is not left with `AuthorizationType=NONE`. **It always allows.**
+
+**A Lambda authorizer cannot verify the GitHub HMAC.** No API Gateway authorizer
+payload format carries the request body — neither `1.0` nor `2.0`, for REST or
+HTTP APIs — and GitHub computes the signature over that body. Signature
+verification therefore lives, and must stay, in the webhook lambda:
+`verifySignature()` in `lambdas/functions/webhook/src/webhook/index.ts`, which
+rejects an invalid signature with a 401. **Do not remove that check on the
+assumption the gateway performs it.** Anyone who wants a real cryptographic gate
+at the edge has to put a high-entropy token in the webhook URL itself (GitHub
+allows no custom headers) and validate it in the authorizer.
+
+Pieces:
+- `lambdas/functions/webhook/src/lambda.ts` → `githubWebhookAuthorizer`, and
+  `src/authorizer/` for the origin-signal extraction. It returns
+  `{ isAuthorized: true }` unconditionally, calls no AWS API, reads no
+  parameter, and swallows its own logging errors, so it has no failure mode. It
+  logs the signals it can see (signature header shape, event type, hook
+  installation target, user agent, source IP) purely for observability.
+- `deployments/shared-runners/webhook-authorizer.tf` → the lambda (same
+  `webhook.zip` artifact, different handler export), its log group, a
+  logs-only IAM role, the `aws_apigatewayv2_authorizer`, and the attachment.
+- `deployments/shared-runners/scripts/webhook-authorizer.sh` →
+  `attach` / `verify` / `detach`, with `webhook-authorizer.test.sh` alongside.
+
+Two configuration details that are load-bearing:
+- **`identity_sources = []`.** With an identity source configured, API Gateway
+  answers 401 *without invoking the lambda* whenever that header is absent. An
+  empty list keeps every request on the lambda, which always allows.
+- **`authorizer_result_ttl_in_seconds = 0`.** Caching needs an identity source
+  to key on, so it stays off.
+
+### Why attachment happens outside Terraform
+
+`modules/webhook/main.tf` deliberately sets
+`ignore_changes = [authorizer_id, authorization_type, authorization_scopes]` on
+the route (upstream PR #4000, "Enable authorizer assignment to webhook"). The
+reason is a dependency cycle: the authorizer needs the API id, which the module
+creates, while the route needs the authorizer id. Upstream left external
+assignment as the escape hatch, and this deployment uses it — a `terraform_data`
+resource calls `webhook-authorizer.sh attach`, which is `apigatewayv2
+update-route`. That keeps `modules/` free of fork-local changes, so rebasing onto
+upstream stays trivial.
+
+Consequences to know:
+- `update-route` is an **in-place** update. The route is never recreated, so no
+  404 window opens and no `workflow_job.queued` event is lost. (GitHub does not
+  redeliver, so a lost queued event leaves a job hanging with no runner.)
+- The attach step verifies itself: it re-reads the route, then POSTs an unsigned
+  request to the live endpoint. A `403` means API Gateway is denying, so the
+  script restores `AuthorizationType=NONE` and fails the apply.
+- The attachment is not visible in `terraform plan`. If someone detaches the
+  authorizer by hand, the next apply re-attaches it; until then the route falls
+  back to its pre-change behaviour, which is availability-safe.
+
+Verification, rollback and the Logs Insights query are in
+`deployments/shared-runners/RUNBOOK.md` "Step 5a".
+
 ## Architecture Notes
 
 ### How `runners_maximum_count` works

@@ -1,9 +1,9 @@
 import { logger } from '@aws-github-runner/aws-powertools-util';
-import { APIGatewayEvent, Context } from 'aws-lambda';
+import { APIGatewayEvent, APIGatewayRequestAuthorizerEventV2, Context } from 'aws-lambda';
 
 import { WorkflowJobEvent } from '@octokit/webhooks-types';
 
-import { dispatchToRunners, eventBridgeWebhook, directWebhook } from './lambda';
+import { dispatchToRunners, eventBridgeWebhook, directWebhook, githubWebhookAuthorizer } from './lambda';
 import { publishForRunners, publishOnEventBridge } from './webhook';
 import ValidationError from './ValidationError';
 import { getParameter } from '@aws-github-runner/aws-ssm-util';
@@ -118,6 +118,39 @@ describe('Test webhook lambda wrapper.', () => {
       const result = await directWebhook(event, context);
       expect(result).toMatchObject({ body: 'Check the Lambda logs for the error details.', statusCode: 500 });
       expect(logSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Lambda githubWebhookAuthorizer.', () => {
+    const authorizerEvent = {
+      headers: { 'x-hub-signature-256': `sha256=${'a'.repeat(64)}`, 'x-github-event': 'workflow_job' },
+      requestContext: { http: { sourceIp: '140.82.115.1' } },
+    } as unknown as APIGatewayRequestAuthorizerEventV2;
+
+    it('Allows a request and logs the observed origin signals.', async () => {
+      const logSpy = vi.spyOn(logger, 'info');
+
+      await expect(githubWebhookAuthorizer(authorizerEvent, context)).resolves.toEqual({ isAuthorized: true });
+      expect(logSpy).toHaveBeenCalledWith(
+        'GitHub webhook request reached the authorizer',
+        expect.objectContaining({
+          github: expect.objectContaining({ signatureWellFormed: true, event: 'workflow_job' }),
+        }),
+      );
+    });
+
+    it('Allows a request that carries no GitHub headers at all.', async () => {
+      const emptyEvent = {} as APIGatewayRequestAuthorizerEventV2;
+
+      await expect(githubWebhookAuthorizer(emptyEvent, context)).resolves.toEqual({ isAuthorized: true });
+    });
+
+    it('Allows a request even when logging fails.', async () => {
+      vi.spyOn(logger, 'info').mockImplementation(() => {
+        throw new Error('logging is broken');
+      });
+
+      await expect(githubWebhookAuthorizer(authorizerEvent, context)).resolves.toEqual({ isAuthorized: true });
     });
   });
 

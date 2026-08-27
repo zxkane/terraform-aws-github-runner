@@ -9,6 +9,17 @@ output "webhook_secret" {
   sensitive   = true
 }
 
+output "webhook_authorizer" {
+  description = "Inputs for scripts/webhook-authorizer.sh verify (or detach, to roll back)"
+  value = {
+    api_id        = module.runners.webhook.gateway.id
+    authorizer_id = aws_apigatewayv2_authorizer.webhook.id
+    function_name = aws_lambda_function.webhook_authorizer.function_name
+    log_group     = aws_cloudwatch_log_group.webhook_authorizer.name
+    route_key     = local.webhook_route_key
+  }
+}
+
 output "runners_label_arm64" {
   description = "GitHub Actions label set for arm64 self-hosted jobs"
   value       = "[\"self-hosted\", \"linux\", \"arm64\"]"
